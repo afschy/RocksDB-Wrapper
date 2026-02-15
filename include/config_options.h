@@ -1,11 +1,11 @@
+#include <iostream>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/iostats_context.h>
 #include <rocksdb/options.h>
 #include <rocksdb/perf_context.h>
+#include <rocksdb/slice_transform.h>
 #include <rocksdb/statistics.h>
 #include <rocksdb/table.h>
-
-#include <iostream>
 
 #include "db_env.h"
 #include "event_listners.h"
@@ -97,7 +97,7 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   case 2:
     options->compaction_style = CompactionStyle::kCompactionStyleUniversal;
     break;
-  case 3:
+  case 3: 
     options->compaction_style = CompactionStyle::kCompactionStyleFIFO;
     break;
   case 4:
@@ -230,9 +230,9 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   case 8:
     options->compression = CompressionType::kZSTD;
     break;
-  case 9:
-    options->compression = CompressionType::kZSTDNotFinalCompression;
-    break;
+  // case 9: March 01, 2025 [deprecated]
+  //   options->compression = CompressionType::kZSTDNotFinalCompression;
+  //   break;
   case 10:
     options->compression = CompressionType::kDisableCompressionOption;
     break;
@@ -298,6 +298,7 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   options->inplace_update_support = env->inplace_update_support;
   options->inplace_update_num_locks = env->inplace_update_num_locks;
   options->report_bg_io_stats = env->report_bg_io_stats;
+  options->arena_block_size = env->GetBlockSize();
 #pragma endregion // [ColumnFamilyOptions]
 
 #pragma region[FlushOptions]
@@ -305,27 +306,34 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   flush_options->allow_write_stall = env->allow_write_stall;
 #pragma endregion // [FlushOptions]
 
-  if (env->IsPerfIOStatEnabled()) {
-    rocksdb::SetPerfLevel(
-        rocksdb::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
+  options->statistics = rocksdb::CreateDBStatistics();
+  if (env->IsRocksDBStatEnabled()) {
+    options->statistics->set_stats_level(rocksdb::StatsLevel::kAll);
+  } else {
+    options->statistics->set_stats_level(rocksdb::StatsLevel::kDisableAll);
+  }
+
+  rocksdb::PerfLevel perf_level = rocksdb::PerfLevel::kDisable;
+
+  if (env->IsPerfStatEnabled()) {
+    perf_level = rocksdb::PerfLevel::kEnableTimeAndCPUTimeExceptForMutex;
+  } else if (env->IsIOStatEnabled()) {
+    perf_level = rocksdb::PerfLevel::kEnableCount;
+  }
+
+  rocksdb::SetPerfLevel(perf_level);
+
+  if (env->IsPerfStatEnabled()) {
     rocksdb::get_perf_context()->Reset();
     rocksdb::get_perf_context()->ClearPerLevelPerfContext();
     rocksdb::get_perf_context()->EnablePerLevelPerfContext();
-    rocksdb::get_iostats_context()->Reset();
-    options->statistics.reset();
-    options->statistics = rocksdb::CreateDBStatistics();
   } else {
-#ifdef PROFILE
-    options->statistics.reset();
-    options->statistics = rocksdb::CreateDBStatistics();
-#endif // PROFILE
+    rocksdb::get_perf_context()->DisablePerLevelPerfContext();
   }
 
-  // NOTE: Keep this block in last of this file
-#ifdef DOSTO
-  std::shared_ptr<FluidLSM> tree = std::make_shared<FluidLSM>(
-      env->size_ratio, env->smaller_lvl_runs_count, env->larger_lvl_runs_count,
-      env->GetTargetFileSizeBase(), options);
-  options->listeners.emplace_back(tree);
-#endif // DOSTO
+  if (env->IsIOStatEnabled()) {
+    rocksdb::get_iostats_context()->Reset();
+  } else {
+    rocksdb::get_iostats_context()->disable_iostats = true;
+  }
 }

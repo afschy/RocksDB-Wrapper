@@ -8,12 +8,24 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DPROFILE")
 if(NOT DISABLE_JEMALLOC)
     if(JEMALLOC)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE ${JEMALLOC_INCLUDE}")
-        list(APPEND EXEC_LDFLAGS "${JEMALLOC_LIB}" "-lpthread")
+        if(APPLE)
+            list(APPEND EXEC_LDFLAGS "${JEMALLOC_LIB}" "-lpthread")
+        else()
+            list(APPEND EXEC_LDFLAGS "${JEMALLOC_LIB}" "-lpthread" "-lrt")
+        endif()
     else()
-        list(APPEND EXEC_LDFLAGS "-lpthread")
+        if(APPLE)
+            list(APPEND EXEC_LDFLAGS "-lpthread")
+        else()
+            list(APPEND EXEC_LDFLAGS "-lpthread" "-lrt")
+        endif()
     endif()
 else()
-    list(APPEND EXEC_LDFLAGS "-lpthread")
+    if(APPLE)
+        list(APPEND EXEC_LDFLAGS "-lpthread")
+    else()
+        list(APPEND EXEC_LDFLAGS "-lpthread" "-lrt")
+    endif()
 endif()
 
 option(WITH_TESTS "Build with tests" OFF)
@@ -28,8 +40,9 @@ set(ROCKSDB_PLUGINS "zenfs")
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/rocksdb/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/KV-WorkloadGenerator/include)
+# include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/KV-WorkloadGenerator/include) [deprecated]
 
+# Build tectonic
 add_custom_target(tectonic-cli ALL
     COMMAND cargo build --release
     COMMAND ${CMAKE_COMMAND} -E copy
@@ -61,4 +74,4 @@ target_link_libraries(working_version ${CMAKE_BINARY_DIR}/lib/rocksdb/librocksdb
 add_dependencies(working_version rocksdb)
 add_dependencies(working_version tectonic-cli)
 
-target_compile_definitions(working_version PRIVATE -DTIMER -DPROFILE)
+target_compile_definitions(working_version PRIVATE -DPROFILE)

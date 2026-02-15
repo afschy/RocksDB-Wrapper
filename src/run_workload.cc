@@ -10,6 +10,7 @@
 #include "utils.h"
 
 std::string buffer_file = "workload.log";
+std::string stats_file = "stats.log";
 
 int runWorkload(std::unique_ptr<DBEnv> &env) {
   DB *db;
@@ -22,16 +23,19 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   configOptions(env, &options, &table_options, &write_options, &read_options,
                 &flush_options);
 
-  // Add custom listners
-  std::shared_ptr<CompactionsListner> compaction_listener =
-      std::make_shared<CompactionsListner>();
-  options.listeners.emplace_back(compaction_listener);
+  if (env->is_per_op_timer) {
+#define PER_OP_TIMER
+  }
+  if (env->is_total_timer) {
+#define TOTAL_TIMER
+  }
 
-  std::unique_ptr<Buffer> buffer = std::make_unique<Buffer>(buffer_file);
+  std::shared_ptr<Buffer> buffer = std::make_unique<Buffer>(buffer_file);
+  std::unique_ptr<Buffer> stats = std::make_unique<Buffer>(stats_file);
 
   if (env->IsDestroyDatabaseEnabled()) {
     DestroyDB(env->kDBPath, options);
-    std::cout << "Destroying database ... done" << std::endl;
+    std::cerr << "Destroying database ... done" << std::endl;
   }
 
   PrintExperimentalSetup(env, buffer);
@@ -40,21 +44,13 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   if (!s.ok())
     std::cerr << s.ToString() << std::endl;
   assert(s.ok());
-  Iterator *it = db->NewIterator(read_options);
-
-#ifdef DOSTO
-  if (env->debugging) {
-    tree->SetDebugMode(env->debugging);
-    tree->PrintFluidLSM(db);
-  }
-#endif // DOSTO
 
   // Clearing the system cache
   if (env->clear_system_cache) {
 #ifdef __linux__
-    std::cout << "Clearing system cache ...";
-    std::cout << system("sudo sh -c 'echo 3 >/proc/sys/vm/drop_caches'")
-              << "done" << std::endl;
+    std::cerr << "Clearing system cache ...";
+    std::cerr << system("sudo sh -c 'echo 3 >/proc/sys/vm/drop_caches'")
+              << " done" << std::endl;
 #endif
   }
 
@@ -73,11 +69,19 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   workload_file.clear();
   workload_file.seekg(0, std::ios::beg);
 
-#ifdef TIMER
+#ifdef PER_OP_TIMER
   unsigned long inserts_exec_time = 0, updates_exec_time = 0, pq_exec_time = 0,
                 pdelete_exec_time = 0, rq_exec_time = 0;
-#endif // TIMER
+#endif // PER_OP_TIMER
+
+#ifdef TOTAL_TIMER
   auto exec_start = std::chrono::high_resolution_clock::now();
+#endif // TOTAL_TIMER
+
+  if (env->IsPerfStatEnabled())
+    rocksdb::get_perf_context()->Reset();
+  if (env->IsIOStatEnabled())
+    rocksdb::get_iostats_context()->Reset();
 
   std::string line;
   unsigned long ith_op = 0;
@@ -96,16 +100,17 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
       std::string key, value;
       stream >> key >> value;
 
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto start = std::chrono::high_resolution_clock::now();
-#endif // TIMER
+#endif // PER_OP_TIMER
       s = db->Put(write_options, key, value);
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto stop = std::chrono::high_resolution_clock::now();
-      inserts_exec_time +=
-          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
-              .count();
-#endif // TIMER
+      auto duration =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
+      (*stats) << "InsertTime: " << duration.count() << std::endl;
+      inserts_exec_time += duration.count();
+#endif // PER_OP_TIMER
       break;
     }
       // [Update]
@@ -113,16 +118,17 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
       std::string key, value;
       stream >> key >> value;
 
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto start = std::chrono::high_resolution_clock::now();
-#endif // TIMER
+#endif // PER_OP_TIMER
       s = db->Put(write_options, key, value);
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto stop = std::chrono::high_resolution_clock::now();
-      updates_exec_time +=
-          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
-              .count();
-#endif // TIMER
+      auto duration =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
+      (*stats) << "UpdateTime: " << duration.count() << std::endl;
+      updates_exec_time += duration.count();
+#endif // PER_OP_TIMER
       break;
     }
       // [PointDelete]
@@ -130,33 +136,37 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
       std::string key;
       stream >> key;
 
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto start = std::chrono::high_resolution_clock::now();
-#endif // TIMER
+#endif // PER_OP_TIMER
       s = db->Delete(write_options, key);
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto stop = std::chrono::high_resolution_clock::now();
-      pdelete_exec_time +=
-          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
-              .count();
-#endif // TIMER
+      auto duration =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
+      (*stats) << "DeleteTime: " << duration.count() << std::endl;
+      pdelete_exec_time += duration.count();
+#endif // PER_OP_TIMER
       break;
     }
       // [ProbePointQuery]
-    case 'Q': {
+    case 'P':
+    case 'Q':
+     { // for tectonic, point query is P insteat of Q
       std::string key, value;
       stream >> key;
 
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto start = std::chrono::high_resolution_clock::now();
-#endif // TIMER
+#endif // PER_OP_TIMER
       s = db->Get(read_options, key, &value);
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto stop = std::chrono::high_resolution_clock::now();
-      pq_exec_time +=
-          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start)
-              .count();
-#endif // TIMER
+      auto duration =
+          std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
+      (*stats) << "GetTime: " << duration.count() << std::endl;
+      pq_exec_time += duration.count();
+#endif // PER_OP_TIMER
       break;
     }
       // [ScanRangeQuery]
@@ -164,29 +174,37 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
       std::string start_key, end_key;
       stream >> start_key >> end_key;
 
-      uint64_t keys_returned = 0, keys_read = 0;
-      bool did_run_RR = false;
-#ifdef TIMER
-      auto start = std::chrono::high_resolution_clock::now();
-#endif // TIMER
-
-      it->Refresh();
+      ReadOptions scan_read_options = ReadOptions(read_options);
+      scan_read_options.total_order_seek = true;
+      Iterator *it = db->NewIterator(scan_read_options);
       assert(it->status().ok());
+#ifdef PER_OP_TIMER
+      auto start = std::chrono::high_resolution_clock::now();
+#endif // PER_OP_TIMER
+
       for (it->Seek(start_key); it->Valid(); it->Next()) {
         if (it->key().ToString() >= end_key) {
           break;
         }
-        keys_returned++;
       }
       if (!it->status().ok()) {
         (*buffer) << it->status().ToString() << std::endl << std::flush;
       }
-#ifdef TIMER
+#ifdef PER_OP_TIMER
       auto stop = std::chrono::high_resolution_clock::now();
       auto duration =
           std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
+      (*stats) << "ScanTime: " << duration.count() << std::endl;
       rq_exec_time += duration.count();
-#endif // TIMER
+#endif // PER_OP_TIMER
+      delete it;
+      break;
+    }
+    // [RangeDelete]
+    case 'R': {
+      std::string start_key, end_key;
+      stream >> start_key >> end_key;
+      s = db->DeleteRange(write_options, start_key, end_key);
       break;
     }
     default:
@@ -202,27 +220,33 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   }
 
 #ifdef PROFILE
-  (*buffer) << "=====================" << std::endl;
-  LogTreeState(db, buffer);
-  LogRocksDBStatistics(db, options, buffer);
+  if (env->verbosity > Verbosity::NO_PRINTS)
+    (*buffer) << "=====================" << std::endl;
+  LogTreeState(db, buffer, env);
+  // LogRocksDBStatistics(db, options, buffer);
 #endif // PROFILE
 
+#ifdef TOTAL_TIMER
   auto total_exec_time =
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::high_resolution_clock::now() - exec_start)
           .count();
-#ifdef TIMER
+#endif // TOTAL_TIMER
+
+#ifdef PER_OP_TIMER
   (*buffer) << "=====================" << std::endl;
+#endif // PER_OP_TIMER
+#ifdef TOTAL_TIMER
   (*buffer) << "Workload Execution Time: " << total_exec_time << std::endl;
+#endif // TOTAL_TIMER
+#ifdef PER_OP_TIMER
   (*buffer) << "Inserts Execution Time: " << inserts_exec_time << std::endl;
   (*buffer) << "Updates Execution Time: " << updates_exec_time << std::endl;
   (*buffer) << "PointQuery Execution Time: " << pq_exec_time << std::endl;
   (*buffer) << "PointDelete Execution Time: " << pdelete_exec_time << std::endl;
   (*buffer) << "RangeQuery Execution Time: " << rq_exec_time << std::endl;
-#endif // TIMER
+#endif // PER_OP_TIMER
 
-  // delete iterator and close db
-  delete it;
   if (!s.ok())
     std::cerr << s.ToString() << std::endl;
   assert(s.ok());
@@ -234,13 +258,15 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   PrintRocksDBPerfStats(env, buffer, options);
   table_options.block_cache.reset();
   options.table_factory.reset();
-  (*buffer) << "===========END HERE=========\n";
 
   // flush final stats and delete ptr
   buffer->flush();
+  stats->flush();
+#ifdef TOTAL_TIMER
   long long total_seconds = total_exec_time / 1e9;
-  std::cout << "Experiment completed in " << total_seconds / 3600 << "h "
+  std::cerr << "\nExperiment completed in " << total_seconds / 3600 << "h "
             << (total_seconds % 3600) / 60 << "m " << total_seconds % 60 << "s "
             << std::endl;
+#endif // TOTAL_TIMER
   return 0;
 }

@@ -17,7 +17,7 @@ const unsigned int FILE_TO_MEMTABLE_SIZE_RATIO = 1;
 
 // The default and the minimum number is 2
 const int MAX_WRITE_BUFFER_NUMBER = 2;
-const int LEVEL0_FILE_NUM_COMPACTION_TRIGGER = 1;
+const int LEVEL0_FILE_NUM_COMPACTION_TRIGGER = SIZE_RATIO;
 
 // kMaxMultiTrivialMove, default is 4 for RocksDB
 const size_t MAX_MULTI_TRIVIAL_MOVE = 4;
@@ -26,6 +26,14 @@ const int MAX_OPEN_FILES = 1000;
 const int MAX_FILE_OPENING_THREADS = 1000;
 
 } // namespace Default
+
+enum Verbosity {
+  NO_PRINTS = 0,
+  LOW = 1,
+  MEDIUM = 2,
+  HIGH = 3,
+  EXTREME = 4,
+};
 
 /**
  * RocksDB is an emulator environment that let the user set bunch
@@ -46,14 +54,18 @@ private:
   static std::mutex mutex_;
 
   // buffer size in bytes
-  size_t buffer_size_ = 0;           // [M]
-  bool enable_perf_iostat_ = false;  // [stat]
-  bool destroy_database_ = true;     // [d]
-  bool show_progress_bar_ = false;   // [progress]
+  size_t buffer_size_ = 0;         // [M]
+  bool rocksdb_stats_ = false;     // [stat]
+  bool perf_stats_ = false;        // [perf]
+  bool iostat_stats_ = false;      // [iostat]
+  bool destroy_database_ = true;   // [d]
+  bool show_progress_bar_ = false; // [progress]
 
 public:
   static std::string kDBPath;
   static std::string kSavedDBPath;
+  bool is_per_op_timer = false; // [peroptime]
+  bool is_total_timer = false;  // [totaltime]
 
   static std::unique_ptr<DBEnv> GetInstance() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -65,7 +77,9 @@ public:
   uint64_t GetBlockSize() const { return entries_per_page * entry_size; }
 
   void SetBufferSize(size_t buffer_size) { buffer_size_ = buffer_size; }
-  void SetPerfIOStat(bool value) { enable_perf_iostat_ = value; }
+  void SetRocksDBStat(bool value) { rocksdb_stats_ = value; }
+  void SetPerfStat(bool value) { perf_stats_ = value; }
+  void SetIOStat(bool value) { iostat_stats_ = value; }
   void SetDestroyDatabase(bool value) { destroy_database_ = value; }
   void SetShowProgress(bool value) { show_progress_bar_ = value; }
 
@@ -75,16 +89,16 @@ public:
                ? buffer_size_
                : buffer_size_in_pages * entries_per_page * entry_size;
   }
-  bool IsPerfIOStatEnabled() const { return enable_perf_iostat_; }
+  bool IsRocksDBStatEnabled() const { return rocksdb_stats_; }
+  bool IsPerfStatEnabled() const { return perf_stats_; }
+  bool IsIOStatEnabled() const { return iostat_stats_; }
   bool IsDestroyDatabaseEnabled() const { return destroy_database_; }
   bool IsShowProgressEnabled() const { return show_progress_bar_; }
 
   long GetTargetFileSizeBase() const { return GetBufferSize(); }
 
   // control maximum total data size for level base (i.e. level 1)
-  uint64_t GetMaxBytesForLevelBase() const {
-    return GetTargetFileSizeBase() * size_ratio;
-  }
+  uint64_t GetMaxBytesForLevelBase() const { return GetTargetFileSizeBase(); }
 
 #pragma region[DBOptions]
   bool create_if_missing = true;
@@ -123,6 +137,16 @@ public:
   bool allow_mmap_reads = false;
   // allow the OS to mmap file for writing.
   bool allow_mmap_writes = false;
+
+  /**
+   * Verbosity of print statements
+   * 0 for NO_PRINTS
+   * 1 for LOW
+   * 2 for MEDIUM
+   * 3 for HIGH
+   * 4 for EXTREME
+   */
+  int verbosity = 0;
 #pragma endregion
 
   // entry size including key and value size in bytes
@@ -173,6 +197,7 @@ public:
    * 2 for kCompactionStyleUniversal
    * 3 for kCompactionStyleFIFO
    * 4 for kCompactionStyleNone
+   * 5 for kCompactionStyleiLevel
    */
   uint64_t compaction_style = 1; // [C] upper case
 
@@ -186,7 +211,7 @@ public:
       Default::LEVEL0_FILE_NUM_COMPACTION_TRIGGER;
 
   // number of levels for this database
-  int num_levels = 20;
+  int num_levels = 10;
 
   // by default target_file_size_multiplier is 1, which means
   // by default files in different levels will have similar size.
@@ -288,7 +313,7 @@ public:
    * 6 for kLZ4HCCompression
    * 7 for kXpressCompression
    * 8 for kZSTD
-   * 9 for kZSTDNotFinalCompression
+   * 9 for kZSTDNotFinalCompression March 01, 2025 [deprecated]
    * 10 for kDisableCompressionOption
    */
   uint16_t compression = 1;
@@ -360,10 +385,12 @@ public:
 
   // Soft limit on number of level-0 files.
   // We start slowing down writes at this point.
-  int level0_slowdown_writes_trigger = 1;
+  // int level0_slowdown_writes_trigger = 1;
+  int level0_slowdown_writes_trigger = Default::SIZE_RATIO - 1;
 
   // maximum number of level-0 files. RocksDB stop writes at this point
-  int level0_stop_writes_trigger = 1;
+  // int level0_stop_writes_trigger = 1;
+  int level0_stop_writes_trigger = Default::SIZE_RATIO;
 
   // After writing every SST file, reopen it and read all the keys.
   // Checks the hash of all of the keys and values written versus the
@@ -399,5 +426,4 @@ public:
   bool allow_write_stall = true;
 #pragma endregion
 };
-
 #endif // DB_ENV_H_
