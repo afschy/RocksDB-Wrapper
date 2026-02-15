@@ -34,6 +34,17 @@ git submodule update --init --recursive
 ---
 
 ## Build
+Use the provided scripts:
+
+```bash
+# Initial setup
+./setup.sh
+
+# Rebuild the project after changes
+./scripts/rebuild.sh
+```
+
+Or you can also use the standard CMake commands:
 
 ```bash
 mkdir build
