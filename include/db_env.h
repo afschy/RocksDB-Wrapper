@@ -147,6 +147,9 @@ public:
    * 4 for EXTREME
    */
   int verbosity = 0;
+
+  std::string fs_uri = "zenfs://dev:nvme0n1";
+  // std::string fs_uri = "";
 #pragma endregion
 
   // entry size including key and value size in bytes
@@ -293,7 +296,7 @@ public:
   uint16_t index_shortening = 1;
 
   // This is used to close a block before it reaches the configured
-  // 'block_size'. If the percentage of free space in the current block is less
+  // 'block_size'. I` the percentage of free space in the current block is less
   // than this specified number and adding a new record to the block will
   // exceed the configured block size, then this block will be closed and the
   // new record will be written to the next block.

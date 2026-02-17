@@ -4,6 +4,11 @@ project(UniZNS VERSION 1.0)
 set(CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DPROFILE")
+set(ENV{PKG_CONFIG_PATH} "/usr/local/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ROCKSDB REQUIRED rocksdb)
+
+add_compile_options(${ROCKSDB_CFLAGS})
 
 if(NOT DISABLE_JEMALLOC)
     if(JEMALLOC)
@@ -29,9 +34,9 @@ else()
 endif()
 
 option(WITH_TESTS "Build with tests" OFF)
-option(WITH_TOOLS "Build with tools" OFF)
+option(WITH_TOOLS "Build with tools" ON)
 option(WITH_ALL_TESTS "Build with all tests" OFF)
-option(WITH_BENCHMARK_TOOLS "Build with benchmark tools" OFF)
+option(WITH_BENCHMARK_TOOLS "Build with benchmark tools" ON)
 option(WITH_CORE_TOOLS "Build with core tools" OFF)
 option(WITH_TRACE_TOOLS "Build with trace tools" OFF)
 option(USE_RTTI "" ON)
@@ -69,7 +74,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
 
 add_executable(working_version ${SOURCES})
 
-target_link_libraries(working_version ${CMAKE_BINARY_DIR}/lib/rocksdb/librocksdb.a ${EXEC_LDFLAGS})
+target_link_libraries(working_version ${CMAKE_BINARY_DIR}/lib/rocksdb/librocksdb.a ${ROCKSDB_STATIC_LIBRARIES} ${EXEC_LDFLAGS})
 
 add_dependencies(working_version rocksdb)
 add_dependencies(working_version tectonic-cli)

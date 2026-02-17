@@ -6,15 +6,20 @@
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/statistics.h>
 #include <rocksdb/table.h>
+#include <rocksdb/convenience.h>
 
 #include "db_env.h"
 #include "event_listners.h"
 #include "fluid_lsm.h"
 
+ROCKSDB_NAMESPACE::Env* env_internal = ROCKSDB_NAMESPACE::Env::Default();
+
 void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
                    BlockBasedTableOptions *table_options,
                    WriteOptions *write_options, ReadOptions *read_options,
-                   FlushOptions *flush_options) {
+                   FlushOptions *flush_options,
+                   ConfigOptions *config_options,
+                   std::shared_ptr<ROCKSDB_NAMESPACE::Env> *env_guard) {
 
 #pragma region[DBOptions]
   options->create_if_missing = env->create_if_missing;
@@ -305,6 +310,18 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   flush_options->wait = env->wait;
   flush_options->allow_write_stall = env->allow_write_stall;
 #pragma endregion // [FlushOptions]
+
+  if(env->fs_uri.length() > 0) {
+    ConfigOptions& copt = *config_options;
+    Status s = Env::CreateFromUri(copt, "", env->fs_uri, &env_internal, env_guard);
+    if(!s.ok()) {
+      std::cerr << s.ToString() << "\n";
+      exit(1);
+    }
+    options->env = env_internal;
+  }
+  else
+    options->env = env_internal;
 
   options->statistics = rocksdb::CreateDBStatistics();
   if (env->IsRocksDBStatEnabled()) {

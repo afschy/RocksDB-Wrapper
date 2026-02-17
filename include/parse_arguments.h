@@ -81,6 +81,11 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       "prioritized) [def: 1]",
       {"lowpri"});
 
+  args::ValueFlag<std::string> fs_uri_cmd(
+      group1, "fs_uri",
+      "Set a different filesystem other than the default",
+      {"fs_uri"});
+
   try {
     parser.ParseCLI(argc, argv);
   } catch (args::Help &) {
@@ -144,5 +149,6 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   env->SetShowProgress(show_progress_cmd ? args::get(show_progress_cmd)
                                          : env->IsShowProgressEnabled());
   env->low_pri = low_pri_cmd ? args::get(low_pri_cmd) : env->low_pri;
+  env->fs_uri = fs_uri_cmd ? args::get(fs_uri_cmd) : env->fs_uri;
   return 0;
 }

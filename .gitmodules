@@ -1,0 +1,6 @@
+[submodule "lib/rocksdb"]
+	path = lib/rocksdb
+	url = https://github.com/afschy/rocksdb_modified.git
+[submodule "lib/tectonic"]
+	path = lib/tectonic
+	url = https://github.com/SSD-Brandeis/Tectonic.git

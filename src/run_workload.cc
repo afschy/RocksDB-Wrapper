@@ -11,6 +11,7 @@
 
 std::string buffer_file = "workload.log";
 std::string stats_file = "stats.log";
+std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
 int runWorkload(std::unique_ptr<DBEnv> &env) {
   DB *db;
@@ -19,9 +20,11 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   ReadOptions read_options;
   BlockBasedTableOptions table_options;
   FlushOptions flush_options;
+  ConfigOptions config_options(options);
 
   configOptions(env, &options, &table_options, &write_options, &read_options,
-                &flush_options);
+                &flush_options, &config_options, &env_guard);
+  printf("Done configuring options\n");
 
   if (env->is_per_op_timer) {
 #define PER_OP_TIMER
@@ -34,7 +37,7 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   std::unique_ptr<Buffer> stats = std::make_unique<Buffer>(stats_file);
 
   if (env->IsDestroyDatabaseEnabled()) {
-    DestroyDB(env->kDBPath, options);
+    // DestroyDB(env->kDBPath, options);
     std::cerr << "Destroying database ... done" << std::endl;
   }
 

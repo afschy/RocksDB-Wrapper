@@ -57,7 +57,7 @@ Stats::Stats()
 }
 
 void Stats::printStats() {
-  DBEnv* _env = DBEnv::GetInstance();
+  DBEnv* _env = DBEnv::GetInstance().get();
   
   int l = 12;
 
