@@ -1,0 +1,1 @@
+sudo bin/working_version --size_ratio=2 --buffer_size_in_pages=256 --progress=1 --num_levels=11 --fs_uri=zenfs://dev:nvme0n1

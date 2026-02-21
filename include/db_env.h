@@ -148,8 +148,8 @@ public:
    */
   int verbosity = 0;
 
-  std::string fs_uri = "zenfs://dev:nvme0n1";
-  // std::string fs_uri = "";
+  // std::string fs_uri = "zenfs://dev:nvme0n1";
+  std::string fs_uri = "";
 #pragma endregion
 
   // entry size including key and value size in bytes

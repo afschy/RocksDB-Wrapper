@@ -81,6 +81,12 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       "prioritized) [def: 1]",
       {"lowpri"});
 
+    args::ValueFlag<int> num_levels_cmd(
+      group1, "num_levels",
+      "Set the number of levels"
+      "[def: 10]",
+      {"num_levels"});
+
   args::ValueFlag<std::string> fs_uri_cmd(
       group1, "fs_uri",
       "Set a different filesystem other than the default",
@@ -149,6 +155,7 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   env->SetShowProgress(show_progress_cmd ? args::get(show_progress_cmd)
                                          : env->IsShowProgressEnabled());
   env->low_pri = low_pri_cmd ? args::get(low_pri_cmd) : env->low_pri;
+  env->num_levels = num_levels_cmd ? args::get(num_levels_cmd) : env->num_levels;
   env->fs_uri = fs_uri_cmd ? args::get(fs_uri_cmd) : env->fs_uri;
   return 0;
 }
