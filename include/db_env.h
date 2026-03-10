@@ -54,12 +54,12 @@ private:
   static std::mutex mutex_;
 
   // buffer size in bytes
-  size_t buffer_size_ = 0;         // [M]
-  bool rocksdb_stats_ = false;     // [stat]
-  bool perf_stats_ = false;        // [perf]
-  bool iostat_stats_ = false;      // [iostat]
-  bool destroy_database_ = true;   // [d]
-  bool show_progress_bar_ = false; // [progress]
+  size_t buffer_size_ = 0;          // [M]
+  bool rocksdb_stats_ = true;       // [stat]
+  bool perf_stats_ = true;          // [perf]
+  bool iostat_stats_ = true;        // [iostat]
+  bool destroy_database_ = false;   // [d]
+  bool show_progress_bar_ = true;   // [progress]
 
 public:
   static std::string kDBPath;
@@ -98,11 +98,12 @@ public:
   long GetTargetFileSizeBase() const { return GetBufferSize(); }
 
   // control maximum total data size for level base (i.e. level 1)
-  uint64_t GetMaxBytesForLevelBase() const { return GetTargetFileSizeBase(); }
+  uint64_t GetMaxBytesForLevelBase() const { return files_in_l0 * GetTargetFileSizeBase(); }
 
 #pragma region[DBOptions]
   bool create_if_missing = true;
   bool clear_system_cache = true;
+  uint64_t files_in_l0 = 4;
 
   // number of open files that can be used by the DB
   int max_open_files = Default::MAX_OPEN_FILES;
@@ -346,16 +347,16 @@ public:
 
 #pragma region[WriteOptions]
   // if true, this write request is of lower priority if compaction is behind
-  bool low_pri = true;
-  // bool low_pri = false;
+  // bool low_pri = true;
+  bool low_pri = false;
 
   // if true, the write will be flushed from the operating system buffer cache
   // before the write is considered complete. If true, write will be slower.
   bool sync = false; // FIXME: (shubham) Isn't this should be true.
 
   // if true, write will not first go to the write ahead log.
-  bool disableWAL = true;
-  // bool disableWAL = false;
+  // bool disableWAL = true;
+  bool disableWAL = false;
 
   // if true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete()
