@@ -14,20 +14,20 @@ file_size_mb=32
 size_ratio=10
 files_in_l0=4
 level_count=4
-workload_size_gb=27
 workload_dist=uniform
 key_size_b=16
-value_size_b=4096
+value_size_b=4080
 entry_count=7000000
+workload_size_gb=$(( ((key_size_b + value_size_b) * entry_count + (GB / 2)) / GB ))
 compaction_pri=3
 gc_interval=10
 
 reserve_count=10
-gc_start_level=5
-gc_stop_level=15
+gc_start_level=25
+gc_stop_level=35
 gc_slope=no
 
-file_placement_policies=( "default" "caza" "oaza" "zonekv" "nearest" "hybrid1" "hybrid2" "hybrid3" )
+file_placement_policies=( "default" "caza" "zonekv" "our-oaza" "real-oaza" "overlap" "nearest" "hybrid1" "hybrid2" "hybrid3" "hybrid4" )
 
 run_dbb="sudo ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count} \
         --write_buffer_size=$((file_size_mb * MB)) --target_file_size_base=$((file_size_mb * MB)) \
@@ -36,6 +36,12 @@ run_dbb="sudo ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count
         --key_size=${key_size_b} --value_size=${value_size_b} \
         --compression_type=none --max_background_compactions=1 --max_background_flushes=1 --perf_level=5 \
         --fs_uri=zenfs://dev:nvme0n1 --use_direct_io_for_flush_and_compaction"
+
+entry_size=$((key_size_b+value_size_b))
+run_wld="sudo ./bin/working_version --size_ratio=${size_ratio} --buffer_size_in_pages=$((file_size_mb*256)) \
+        --progress=1 --num_levels=${level_count} --files_in_l0=${files_in_l0} --fs_uri=zenfs://dev:nvme0n1 \
+        --entry_size=${entry_size} --entries_per_page=$((entry_size / 4096))"
+echo $run_wld > curr_command.txt
 
 dir=s${ssd_size_gb}_z${zone_size_mb}_fs${file_size_mb}_r${size_ratio}_fl0-${files_in_l0}_lc${level_count}_ws${workload_size_gb}_wd-${workload_dist}_ks${key_size_b}_vs${value_size_b}_ec${entry_count}_cp${compaction_pri}_gcint${gc_interval}
 subdir_1=rsvz-${reserve_count}_gcstart-${gc_start_level}_gcstop-${gc_stop_level}_gcslp-${gc_slope}
@@ -65,14 +71,18 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
                 -e "s/^gc_type .*/gc_type kDefaultGC/" \
         ${PARAMFILE}
     fi
-    # touch ${file_placement_policy}_test.log
 
-    eval $run_dbb > stdout.log 2>&1
+    # eval $run_dbb > stdout.log 2>&1
+    eval $run_wld > stdout.log 2>&1
+
+    # sudo chmod 777 /home/afschy/db_extra
+    # sudo chmod 777 /home/afschy/db_extra/rocksdbtest
+    # sudo chmod 777 /home/afschy/db_extra/rocksdbtest/dbbench
+    # mv /home/afschy/db_extra/rocksdbtest/dbbench/LOG ./rocksdb.log
 
     sudo chmod 777 /home/afschy/db_extra
-    sudo chmod 777 /home/afschy/db_extra/rocksdbtest
-    sudo chmod 777 /home/afschy/db_extra/rocksdbtest/dbbench
-    mv /home/afschy/db_extra/rocksdbtest/dbbench/LOG ./rocksdb.log
+    sudo chmod 777 /home/afschy/db_extra/db
+    mv /home/afschy/db_extra/db/LOG ./rocksdb.log
 
     timestamp=$(date +"%y-%m-%d_%H-%M")
     for file in *.log; do
@@ -85,3 +95,5 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
     mkdir -p ${fullpath}
     mv *.log ${fullpath}/
 done
+
+sudo chown -R afschy /home/afschy/${dir}
