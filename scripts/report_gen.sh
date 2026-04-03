@@ -87,7 +87,7 @@ sorted_rows=$(for r in "${!all_rows[@]}"; do
 done | sort -k1,1n -k2,2n -k3,3n | awk '{print $NF}')
 
 # Enforce exact column order for policies
-target_order=(default caza real-oaza zonekv our-oaza overlap nearest hybrid1 hybrid2 hybrid3 hybrid4)
+target_order=(default caza real-oaza zonekv our-oaza overlap nearest nearest-30 hybrid1 hybrid2 hybrid3 hybrid4)
 sorted_policies=""
 
 for p in "${target_order[@]}"; do

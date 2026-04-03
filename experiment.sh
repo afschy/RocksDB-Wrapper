@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# sudo bin/working_version --size_ratio=2 --buffer_size_in_pages=256 --progress=1 --num_levels=11 --fs_uri=zenfs://dev:nvme0n1
-
-# ./recompile.sh
-
 KB=$((1024))
 MB=$((1024 * $KB))
 GB=$((1024 * $MB))
@@ -16,7 +12,7 @@ files_in_l0=4
 level_count=4
 workload_dist=uniform
 key_size_b=16
-value_size_b=4080
+value_size_b=4096
 entry_count=7000000
 workload_size_gb=$(( ((key_size_b + value_size_b) * entry_count + (GB / 2)) / GB ))
 compaction_pri=3
@@ -27,7 +23,7 @@ gc_start_level=25
 gc_stop_level=35
 gc_slope=no
 
-file_placement_policies=( "default" "caza" "zonekv" "real-oaza" "nearest" )
+file_placement_policies=( "default" "caza" "zonekv" "real-oaza" "nearest" "nearest-30" )
 
 run_dbb="sudo ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count} \
         --write_buffer_size=$((file_size_mb * MB)) --target_file_size_base=$((file_size_mb * MB)) \
@@ -40,8 +36,8 @@ run_dbb="sudo ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count
 entry_size=$((key_size_b+value_size_b))
 run_wld="sudo ./bin/working_version --size_ratio=${size_ratio} --buffer_size_in_pages=$((file_size_mb*256)) \
         --progress=1 --num_levels=${level_count} --files_in_l0=${files_in_l0} --fs_uri=zenfs://dev:nvme0n1 \
-        --entry_size=${entry_size} --entries_per_page=$((4096 / entry_size))"
-echo $run_wld > curr_command.txt
+        --entry_size=${entry_size} --entries_per_page=$((entry_size / 4096))"
+echo $run_dbb > curr_command.txt
 
 dir=s${ssd_size_gb}_z${zone_size_mb}_fs${file_size_mb}_r${size_ratio}_fl0-${files_in_l0}_lc${level_count}_ws${workload_size_gb}_wd-${workload_dist}_ks${key_size_b}_vs${value_size_b}_ec${entry_count}_cp${compaction_pri}_gcint${gc_interval}
 subdir_1=rsvz-${reserve_count}_gcstart-${gc_start_level}_gcstop-${gc_stop_level}_gcslp-${gc_slope}
@@ -52,7 +48,6 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
     subdir_2=fp-${file_placement_policy}
     fullpath=/home/afschy/${dir}/${subdir_1}/${subdir_2}
 
-    ./scripts/setup_${file_placement_policy}.sh
     PARAMFILE="./lib/rocksdb/plugin/zenfs/params.txt"
     sed -i  -e   "s/^logname .*/logname ${file_placement_policy}.log/" \
             -e   "s/^gc_pause_seconds .*/gc_pause_seconds ${gc_interval}/" \
@@ -60,6 +55,7 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
             -e   "s/^reserve_zone_count .*/reserve_zone_count ${reserve_count}/" \
             -e   "s/^buffer_size_megabytes .*/buffer_size_megabytes $((file_size_mb + 1))/" \
         ${PARAMFILE}
+    ./scripts/setup_${file_placement_policy}.sh
 
     if [[ "${gc_stop_level}" != "no" ]]; then
         sed -i  -e "s/^gc_stop_level .*/gc_stop_level ${gc_stop_level}/" \
