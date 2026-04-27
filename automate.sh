@@ -54,4 +54,6 @@ sudo ./experiment.sh
 
 sed -i -e   's/^gc_start_level=.*/gc_start_level=5/' \
        -e   's/^gc_stop_level=.*/gc_stop_level=7/' \
+       ./experiment.sh
 
+sudo ./experiment.sh
