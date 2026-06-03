@@ -1,5 +1,8 @@
 #!/bin/bash
 
+REAL_USER=${SUDO_USER:-$(whoami)}
+REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
+
 KB=$((1024))
 MB=$((1024 * $KB))
 GB=$((1024 * $MB))
@@ -23,6 +26,8 @@ gc_start_level=20
 gc_stop_level=30
 gc_slope=no
 
+dbbench_or_tectonic=dbbench
+
 file_placement_policies=( "default" "caza" "zonekv" "real-oaza" "nearest" "hybrid1" "hybrid2" "hybrid3" )
 
 run_dbb="sudo ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count} \
@@ -36,8 +41,13 @@ run_dbb="sudo ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count
 entry_size=$((key_size_b+value_size_b))
 run_wld="sudo ./bin/working_version --size_ratio=${size_ratio} --buffer_size_in_pages=$((file_size_mb*256)) \
         --progress=1 --num_levels=${level_count} --files_in_l0=${files_in_l0} --fs_uri=zenfs://dev:nvme0n1 \
-        --entry_size=${entry_size} --entries_per_page=$((entry_size / 4096))"
-echo $run_dbb > curr_command.txt
+        --entry_size=${entry_size} --entries_per_page=$((4096 / entry_size))"
+
+if [[ "${dbbench_or_tectonic}" == "dbbench" ]]; then
+    echo $run_dbb > curr_command.txt
+elif [[ "${dbbench_or_tectonic}" == "tectonic" ]]; then
+    echo $run_wld > curr_command.txt
+fi
 
 dir=s${ssd_size_gb}_z${zone_size_mb}_fs${file_size_mb}_r${size_ratio}_fl0-${files_in_l0}_lc${level_count}_ws${workload_size_gb}_wd-${workload_dist}_ks${key_size_b}_vs${value_size_b}_ec${entry_count}_cp${compaction_pri}_gcint${gc_interval}
 subdir_1=rsvz-${reserve_count}_gcstart-${gc_start_level}_gcstop-${gc_stop_level}_gcslp-${gc_slope}
@@ -46,7 +56,7 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
     ./scripts/zenfs_mkfs_clean.sh
     echo ${file_placement_policy}
     subdir_2=fp-${file_placement_policy}
-    fullpath=/home/afschy/${dir}/${subdir_1}/${subdir_2}
+    fullpath=${REAL_HOME}/${dir}/${subdir_1}/${subdir_2}
 
     PARAMFILE="./lib/rocksdb/plugin/zenfs/params.txt"
     sed -i  -e   "s/^logname .*/logname ${file_placement_policy}.log/" \
@@ -68,17 +78,18 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
         ${PARAMFILE}
     fi
 
-    eval $run_dbb > stdout.log 2>&1
-    # eval $run_wld > stdout.log 2>&1
-
-    sudo chmod 777 /home/afschy/db_extra
-    sudo chmod 777 /home/afschy/db_extra/rocksdbtest
-    sudo chmod 777 /home/afschy/db_extra/rocksdbtest/dbbench
-    mv /home/afschy/db_extra/rocksdbtest/dbbench/LOG ./rocksdb.log
-
-    # sudo chmod 777 /home/afschy/db_extra
-    # sudo chmod 777 /home/afschy/db_extra/db
-    # mv /home/afschy/db_extra/db/LOG ./rocksdb.log
+    if [[ "${dbbench_or_tectonic}" == "dbbench" ]]; then
+        eval $run_dbb > stdout.log 2>&1
+        # sudo chmod 777 ${REAL_HOME}/db_extra
+        # sudo chmod 777 ${REAL_HOME}/db_extra/rocksdbtest
+        # sudo chmod 777 ${REAL_HOME}/db_extra/rocksdbtest/dbbench
+        mv ${REAL_HOME}/db_extra/rocksdbtest/dbbench/LOG ./rocksdb.log
+    elif [[ "${dbbench_or_tectonic}" == "tectonic" ]]; then
+        eval $run_wld > stdout.log 2>&1
+        # sudo chmod 777 ${REAL_HOME}/db_extra
+        # sudo chmod 777 ${REAL_HOME}/db_extra/db
+        mv ${REAL_HOME}/db_extra/db/LOG ./rocksdb.log
+    fi
 
     timestamp=$(date +"%y-%m-%d_%H-%M")
     for file in *.log; do
@@ -92,4 +103,4 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
     mv *.log ${fullpath}/
 done
 
-sudo chown -R afschy /home/afschy/${dir}
+sudo chown -R ${REAL_USER} ${REAL_HOME}/${dir}

@@ -34,6 +34,7 @@
 # files
 **.log
 workload.txt
+curr_command.txt
 
 # db_working_home
 **/db/**
