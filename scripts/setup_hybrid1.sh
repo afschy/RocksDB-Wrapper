@@ -1,4 +1,4 @@
-PARAMFILE="./lib/rocksdb/plugin/zenfs/params.txt"
+PARAMFILE="${ZENFS_PARAMS:-./lib/rocksdb/plugin/zenfs/params.txt}"
 sed -i -e   's/^logname .*/logname hybrid1.log/' \
        -e   's/^upper_level_policy .*/upper_level_policy kClusterTogether/' \
        -e   's/^upper_level_policy_fallback .*/upper_level_policy_fallback kClusterTogether/' \

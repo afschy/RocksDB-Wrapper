@@ -41,3 +41,8 @@ curr_command.txt
 
 **/bin**
 **/build/**
+
+# lsp files
+compile_commands.json
+*.idx
+.vscode

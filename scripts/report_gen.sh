@@ -6,7 +6,7 @@ if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
     exit 1
 fi
 
-declare -A reset_matrix gc_matrix ops_matrix time_matrix progress_matrix
+declare -A reset_matrix gc_matrix time_matrix
 declare -A all_policies all_rows
 
 # --- Phase 1: Data Collection ---
@@ -41,27 +41,7 @@ for d_top in rsvz-*/; do
             gc_matrix["$row_label,$policy"]=$(awk -v mb="$gc_mb" 'BEGIN { if (mb == "" || mb == "0") print "0.00"; else printf "%.2f", mb / 1024 }')
         fi
 
-        # 2. Extraction from stdout and workload logs (Ops, Time, Progress)
-        if [[ -f "$LATEST_STDOUT_LOG" ]]; then
-            
-            # Extract Ops
-            ops_matrix["$row_label,$policy"]=$(grep -E "finished [0-9]+ ops" "$LATEST_STDOUT_LOG" | tail -n 1 | awk '{print $(NF-1)}')
-
-            # --- OLD TIME LOGIC (Commented out) ---
-            # val_time=$(grep "Experiment completed in" "$LATEST_STDOUT_LOG" | tail -n 1 | awk '{
-            #     sub(/h/, "", $4);
-            #     sub(/m/, "", $5);
-            #     sub(/s/, "", $6);
-            #     print ($4 * 3600) + ($5 * 60) + $6
-            # }')
-            # [[ -n "$val_time" ]] && time_matrix["$row_label,$policy"]="$val_time"
-            # --------------------------------------
-
-            # Extract Max Progress
-            val_progress=$(grep -o '[0-9.]\+%' "$LATEST_STDOUT_LOG" | tr -d '%' | sort -n | tail -n 1)
-            [[ -n "$val_progress" ]] && progress_matrix["$row_label,$policy"]=$(printf "%.2f" "$val_progress")
-            
-        fi
+        # 2. Extraction from stdout and workload logs (Time)
 
         # --- NEW TIME LOGIC ---
         val_time=""
@@ -102,7 +82,7 @@ sorted_policies="${sorted_policies# }"
 
 # --- Phase 3: Writing Matrix Files ---
 
-for type in reset_count gc_movement ops_count time progress; do
+for type in reset_count gc_movement time; do
     file="${type}.csv"
     header="label"
     for p in $sorted_policies; do header="${header},${p}"; done
@@ -114,9 +94,7 @@ for type in reset_count gc_movement ops_count time progress; do
             case $type in
                 reset_count) val=${reset_matrix["$r,$p"]} ;;
                 gc_movement) val=${gc_matrix["$r,$p"]} ;;
-                ops_count)   val=${ops_matrix["$r,$p"]} ;;
                 time)        val=${time_matrix["$r,$p"]} ;;
-                progress)    val=${progress_matrix["$r,$p"]} ;;
             esac
             row_str="${row_str},${val}"
         done
@@ -124,4 +102,6 @@ for type in reset_count gc_movement ops_count time progress; do
     done
 done
 
-echo "Extraction complete. Generated: reset_count.csv, gc_movement.csv, ops_count.csv, time.csv, progress.csv"
+{ cat gc_movement.csv; echo; echo; cat time.csv; echo; echo; cat reset_count.csv; } > report.csv
+rm gc_movement.csv time.csv reset_count.csv
+echo "Extraction complete. Generated: report.csv"

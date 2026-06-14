@@ -1,4 +1,4 @@
-PARAMFILE="./lib/rocksdb/plugin/zenfs/params.txt"
+PARAMFILE="${ZENFS_PARAMS:-./lib/rocksdb/plugin/zenfs/params.txt}"
 sed -i -e   's/^logname .*/logname nearest.log/' \
        -e   's/^upper_level_policy .*/upper_level_policy kSameLevelNearbyKeys/' \
        -e   's/^upper_level_policy_fallback .*/upper_level_policy_fallback kSameLevelNearbyKeys/' \
