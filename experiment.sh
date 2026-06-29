@@ -9,15 +9,15 @@ MB=$((1024 * $KB))
 GB=$((1024 * $MB))
 
 ssd_size_gb=32
-zone_size_mb=128
-file_size_mb=32
+zone_size_mb=256
+file_size_mb=4
 size_ratio=10
-files_in_l0=4
+files_in_l0=64
 level_count=4
-workload_dist=uniform
-key_size_b=16
-value_size_b=4096
-entry_count=7000000
+workload_dist=ycsb-a
+key_size_b=19
+value_size_b=4077
+entry_count=7500000
 workload_size_gb=$(( ((key_size_b + value_size_b) * entry_count + (GB / 2)) / GB ))
 compaction_pri=3
 gc_interval=10
@@ -27,9 +27,9 @@ gc_start_level=25
 gc_stop_level=35
 gc_slope=no
 
-dbbench_or_tectonic=dbbench
+dbbench_or_tectonic=tectonic
 
-file_placement_policies=( "default" "caza" "zonekv" "real-oaza" "nearest" "hybrid1" "hybrid2" "hybrid3" )
+file_placement_policies=( "nearest" "real-oaza" "zonekv" )
 
 run_dbb="env ZENFS_PARAMS=$ZENFS_PARAMS ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count} \
         --write_buffer_size=$((file_size_mb * MB)) --target_file_size_base=$((file_size_mb * MB)) \
@@ -42,7 +42,7 @@ run_dbb="env ZENFS_PARAMS=$ZENFS_PARAMS ./bin/db_bench --benchmarks="fillrandom,
 entry_size=$((key_size_b+value_size_b))
 run_wld="env ZENFS_PARAMS=$ZENFS_PARAMS ./bin/working_version --size_ratio=${size_ratio} --buffer_size_in_pages=$((file_size_mb*256)) \
         --progress=1 --num_levels=${level_count} --files_in_l0=${files_in_l0} --fs_uri=zenfs://dev:nvme0n1 \
-        --entry_size=${entry_size} --entries_per_page=$((4096 / entry_size))"
+        --entry_size=${entry_size} --entries_per_page=$((4096 / entry_size)) --compaction_pri=${compaction_pri}"
 
 if [[ "${dbbench_or_tectonic}" == "dbbench" ]]; then
     echo $run_dbb > curr_command.txt

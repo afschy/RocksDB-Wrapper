@@ -28,32 +28,41 @@ for d_top in rsvz-*/; do
         policy=${d_fp##*/fp-}
         all_policies["$policy"]=1
 
-        # Locate the latest files
-        LATEST_NAME_LOG=$(ls "$d_fp/${policy}"_*.log 2>/dev/null | sort | tail -n 1)
-        LATEST_STDOUT_LOG=$(ls "$d_fp/stdout_"*.log 2>/dev/null | sort | tail -n 1)
-        LATEST_WORKLOAD_LOG=$(ls "$d_fp/workload_"*.log 2>/dev/null | sort | tail -n 1)
-
-        # 1. Extraction from name log (Resets, GC)
-        if [[ -f "$LATEST_NAME_LOG" ]]; then
-            reset_matrix["$row_label,$policy"]=$(grep "Reset count =" "$LATEST_NAME_LOG" | tail -n 1 | sed -n 's/.*Reset count = \([0-9]*\).*/\1/p')
-            
-            gc_mb=$(grep "Total movement due to GC =" "$LATEST_NAME_LOG" | tail -n 1 | sed -n 's/.*Total movement due to GC = \([0-9.]*\).*/\1/p')
-            gc_matrix["$row_label,$policy"]=$(awk -v mb="$gc_mb" 'BEGIN { if (mb == "" || mb == "0") print "0.00"; else printf "%.2f", mb / 1024 }')
+        # 1. Average reset count and GC movement across all name log timestamps
+        name_logs=("$d_fp/${policy}"_*.log)
+        if [[ -f "${name_logs[0]}" ]]; then
+            reset_matrix["$row_label,$policy"]=$(
+                for f in "${name_logs[@]}"; do
+                    grep "Reset count =" "$f" | tail -n 1 | sed -n 's/.*Reset count = \([0-9]*\).*/\1/p'
+                done | awk 'NF { sum += $1; count++ } END { if (count > 0) printf "%d", sum/count }'
+            )
+            gc_matrix["$row_label,$policy"]=$(
+                for f in "${name_logs[@]}"; do
+                    grep "Total movement due to GC =" "$f" | tail -n 1 | sed -n 's/.*Total movement due to GC = \([0-9.]*\).*/\1/p'
+                done | awk 'NF { sum += $1; count++ } END { if (count > 0) printf "%.2f", sum/count/1024; else print "0.00" }'
+            )
         fi
 
-        # 2. Extraction from stdout and workload logs (Time)
-
-        # --- NEW TIME LOGIC ---
+        # 2. Average execution time across all workload/stdout log timestamps
         val_time=""
-        if [[ -f "$LATEST_WORKLOAD_LOG" ]]; then
-            # Extract nanoseconds, convert to seconds, and round to nearest integer
-            val_time=$(grep "Workload Execution Time:" "$LATEST_WORKLOAD_LOG" | tail -n 1 | awk '{ printf "%.0f\n", $NF / 1000000000 }')
-        elif [[ -f "$LATEST_STDOUT_LOG" ]]; then
-            # Fallback: Extract Uptime(secs) and sum the total and interval values, rounded to nearest integer
-            val_time=$(grep "Uptime(secs):" "$LATEST_STDOUT_LOG" | tail -n 1 | awk '{ printf "%.0f\n", $2 + $4 }')
+        workload_logs=("$d_fp/workload_"*.log)
+        if [[ -f "${workload_logs[0]}" ]]; then
+            val_time=$(
+                for f in "${workload_logs[@]}"; do
+                    grep "Workload Execution Time:" "$f" | tail -n 1 | awk '{ printf "%.0f\n", $NF / 1000000000 }'
+                done | awk 'NF { sum += $1; count++ } END { if (count > 0) printf "%.0f", sum/count }'
+            )
+        else
+            stdout_logs=("$d_fp/stdout_"*.log)
+            if [[ -f "${stdout_logs[0]}" ]]; then
+                val_time=$(
+                    for f in "${stdout_logs[@]}"; do
+                        grep "Uptime(secs):" "$f" | tail -n 1 | awk '{ printf "%.0f\n", $2 + $4 }'
+                    done | awk 'NF { sum += $1; count++ } END { if (count > 0) printf "%.0f", sum/count }'
+                )
+            fi
         fi
         [[ -n "$val_time" ]] && time_matrix["$row_label,$policy"]="$val_time"
-        # ----------------------
 
     done
 done
@@ -84,7 +93,7 @@ sorted_policies="${sorted_policies# }"
 
 for type in reset_count gc_movement time; do
     file="${type}.csv"
-    header="label"
+    header="${type}"
     for p in $sorted_policies; do header="${header},${p}"; done
     echo "$header" > "$file"
 

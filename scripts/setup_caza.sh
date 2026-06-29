@@ -8,6 +8,7 @@ sed -i -e   's/^logname .*/logname caza.log/' \
        -e   's/^middle_level_policy_fallback .*/middle_level_policy_fallback kSameLevelNearbyKeysSimple/' \
        -e   's/^min_boundary .*/min_boundary 0/' \
        -e   's/^real_caza .*/real_caza 1/' \
+       -e   's/^dynamic_level_adjustment .*/dynamic_level_adjustment 0/' \
        ${PARAMFILE}
 
 cat ${PARAMFILE}

@@ -6,6 +6,7 @@ sed -i -e   's/^logname .*/logname default.log/' \
        -e   's/^lower_level_policy_fallback .*/lower_level_policy_fallback kLifetimeBased/' \
        -e   's/^middle_level_policy .*/middle_level_policy kLifetimeBased/' \
        -e   's/^middle_level_policy_fallback .*/middle_level_policy_fallback kLifetimeBased/' \
+       -e   's/^dynamic_level_adjustment .*/dynamic_level_adjustment 0/' \
        ${PARAMFILE}
 
 cat ${PARAMFILE}
