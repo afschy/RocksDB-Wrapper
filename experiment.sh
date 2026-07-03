@@ -29,7 +29,7 @@ gc_slope=no
 
 dbbench_or_tectonic=tectonic
 
-file_placement_policies=( "real-oaza" "zonekv" "plaza-base" "plaza-int-4" "plaza-int-8" "plaza-int-12" "plaza-adv-0.8-4" "plaza-adv-0.5-4" "plaza-adv-0.8-8" "plaza-adv-0.5-8" )
+file_placement_policies=( "plaza-int-12" "plaza-int-8" "plaza-int-4" "plaza-adv-0.8-4" "plaza-adv-0.5-4" "plaza-adv-0.8-8" "plaza-adv-0.5-8" "plaza-base" "oaza" "zonekv" )
 
 run_dbb="env ZENFS_PARAMS=$ZENFS_PARAMS ./bin/db_bench --benchmarks="fillrandom,stats" --num=${entry_count} \
         --write_buffer_size=$((file_size_mb * MB)) --target_file_size_base=$((file_size_mb * MB)) \
