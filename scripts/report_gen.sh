@@ -33,7 +33,7 @@ for d_top in rsvz-*/; do
         if [[ -f "${name_logs[0]}" ]]; then
             reset_matrix["$row_label,$policy"]=$(
                 for f in "${name_logs[@]}"; do
-                    grep "Reset count =" "$f" | tail -n 1 | sed -n 's/.*Reset count = \([0-9]*\).*/\1/p'
+                    grep "total_reset =" "$f" | tail -n 1 | sed -n 's/.*total_reset = \([0-9]*\).*/\1/p'
                 done | awk 'NF { sum += $1; count++ } END { if (count > 0) printf "%d", sum/count }'
             )
             gc_matrix["$row_label,$policy"]=$(
@@ -76,7 +76,7 @@ sorted_rows=$(for r in "${!all_rows[@]}"; do
 done | sort -k1,1n -k2,2n -k3,3n | awk '{print $NF}')
 
 # Enforce exact column order for policies
-target_order=(default caza real-oaza zonekv our-oaza overlap nearest nearest-30 hybrid1 hybrid2 hybrid3 hybrid4)
+target_order=(default caza oaza zonekv our-oaza overlap)
 sorted_policies=""
 
 for p in "${target_order[@]}"; do
@@ -84,6 +84,18 @@ for p in "${target_order[@]}"; do
     if [[ -n "${all_policies[$p]}" ]]; then
         sorted_policies="$sorted_policies $p"
     fi
+done
+
+# plaza* policies go at the end, in alphabetical order
+plaza_policies=$(for p in "${!all_policies[@]}"; do [[ "$p" == plaza* ]] && echo "$p"; done | sort)
+for p in $plaza_policies; do
+    sorted_policies="$sorted_policies $p"
+done
+
+# hybrid* policies go after plaza*, in alphabetical order
+hybrid_policies=$(for p in "${!all_policies[@]}"; do [[ "$p" == hybrid* ]] && echo "$p"; done | sort)
+for p in $hybrid_policies; do
+    sorted_policies="$sorted_policies $p"
 done
 
 # Strip leading space
