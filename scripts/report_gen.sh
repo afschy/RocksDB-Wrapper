@@ -101,7 +101,7 @@ done
 # Strip leading space
 sorted_policies="${sorted_policies# }"
 
-# --- Phase 3: Writing Matrix Files ---
+# --- Phase 3a: Writing CSV Report ---
 
 for type in reset_count gc_movement time; do
     file="${type}.csv"
@@ -125,4 +125,111 @@ done
 
 { cat gc_movement.csv; echo; echo; cat time.csv; echo; echo; cat reset_count.csv; } > report.csv
 rm gc_movement.csv time.csv reset_count.csv
-echo "Extraction complete. Generated: report.csv"
+
+# --- Phase 3b: Writing Markdown Report ---
+
+report="report.md"
+
+# Render one metric as an aligned Markdown table.
+# Every cell is padded to its column's max width, so the table stays
+# readable as plain text while remaining valid Markdown.
+#   $1 = matrix type (reset_count|gc_movement|time)
+#   $2 = section title
+#   $3 = top-left (corner) header label
+print_table() {
+    local type="$1" title="$2" corner="$3"
+    local p r i
+
+    # Column headers: corner label followed by each policy.
+    local -a headers=( "$corner" )
+    for p in $sorted_policies; do headers+=( "$p" ); done
+    local ncols=${#headers[@]}
+
+    # Track the widest string seen in each column (start from the header).
+    local -a widths
+    for ((i = 0; i < ncols; i++)); do widths[i]=${#headers[i]}; done
+
+    # Collect the data cells row-major, updating column widths as we go.
+    local -a table_cells
+    local nrows=0
+    for r in $sorted_rows; do
+        local -a cells=( "$r" )
+        for p in $sorted_policies; do
+            local val
+            case $type in
+                reset_count) val=${reset_matrix["$r,$p"]} ;;
+                gc_movement) val=${gc_matrix["$r,$p"]} ;;
+                time)        val=${time_matrix["$r,$p"]} ;;
+            esac
+            [[ -z "$val" ]] && val="-"
+            cells+=( "$val" )
+        done
+        for ((i = 0; i < ncols; i++)); do
+            (( ${#cells[i]} > widths[i] )) && widths[i]=${#cells[i]}
+            table_cells+=( "${cells[i]}" )
+        done
+        ((nrows++))
+    done
+
+    # Emit the section. Column 0 (labels) is left-aligned; the numeric
+    # columns are right-aligned for tidy text-mode reading.
+    local line cell dashes
+    {
+        echo "## $title"
+        echo
+
+        # Header row.
+        line="|"
+        for ((i = 0; i < ncols; i++)); do
+            if ((i == 0)); then
+                printf -v cell ' %-*s |' "${widths[i]}" "${headers[i]}"
+            else
+                printf -v cell ' %*s |' "${widths[i]}" "${headers[i]}"
+            fi
+            line+="$cell"
+        done
+        echo "$line"
+
+        # Separator row (alignment colons: left for labels, right for numbers).
+        line="|"
+        for ((i = 0; i < ncols; i++)); do
+            printf -v dashes '%*s' "${widths[i]}" ''
+            dashes=${dashes// /-}
+            if ((i == 0)); then
+                line+=" :${dashes:1} |"
+            else
+                line+=" ${dashes:1}: |"
+            fi
+        done
+        echo "$line"
+
+        # Data rows.
+        local row col idx
+        for ((row = 0; row < nrows; row++)); do
+            line="|"
+            for ((col = 0; col < ncols; col++)); do
+                idx=$((row * ncols + col))
+                if ((col == 0)); then
+                    printf -v cell ' %-*s |' "${widths[col]}" "${table_cells[idx]}"
+                else
+                    printf -v cell ' %*s |' "${widths[col]}" "${table_cells[idx]}"
+                fi
+                line+="$cell"
+            done
+            echo "$line"
+        done
+
+        echo
+    } >> "$report"
+}
+
+{
+    echo "# Benchmark Report"
+    echo
+} > "$report"
+
+print_table gc_movement "GC Movement"     "gc_movement"
+print_table time        "Execution Time"  "time"
+print_table reset_count "Reset Count"     "reset_count"
+
+echo "Extraction complete. Generated: report.csv and $report"
