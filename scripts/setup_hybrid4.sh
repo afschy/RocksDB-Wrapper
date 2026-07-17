@@ -7,7 +7,7 @@ sed -i -e   's/^logname .*/logname hybrid4.log/' \
        -e   's/^middle_level_policy .*/middle_level_policy kOverlapChildren/' \
        -e   's/^middle_level_policy_fallback .*/middle_level_policy_fallback kArrivalTimeBased/' \
        -e   's/^min_boundary .*/min_boundary 1/' \
-       -e   's/^dynamic_level_adjustment .*/dynamic_level_adjustment 1/' \
+       -e   's/^dynamic_level_adjustment .*/dynamic_level_adjustment 0/' \
        ${PARAMFILE}
 
 cat ${PARAMFILE}

@@ -8,7 +8,7 @@ sed -i -e   's/^logname .*/logname our-oaza.log/' \
        -e   's/^middle_level_policy_fallback .*/middle_level_policy_fallback kArrivalTimeBased/' \
        -e   's/^min_boundary .*/min_boundary 1/' \
        -e   's/^real_oaza .*/real_oaza 0/' \
-       -e   's/^dynamic_level_adjustment .*/dynamic_level_adjustment 1/' \
+       -e   's/^dynamic_level_adjustment .*/dynamic_level_adjustment 0/' \
        ${PARAMFILE}
 
 cat ${PARAMFILE}
