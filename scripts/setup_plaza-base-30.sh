@@ -1,5 +1,5 @@
 PARAMFILE="${ZENFS_PARAMS:-./lib/rocksdb/plugin/zenfs/params.txt}"
-sed -i -e   's/^logname .*/logname nearest-30.log/' \
+sed -i -e   's/^logname .*/logname plaza-base-30.log/' \
        -e   's/^upper_level_policy .*/upper_level_policy kPlazaBase/' \
        -e   's/^upper_level_policy_fallback .*/upper_level_policy_fallback kArrivalTimeBased/' \
        -e   's/^lower_level_policy .*/lower_level_policy kPlazaBase/' \
