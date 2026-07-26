@@ -23,13 +23,13 @@ compaction_pri=4
 gc_interval=10
 
 reserve_count=10
-gc_start_level=20
-gc_stop_level=30
+gc_start_level=25
+gc_stop_level=35
 gc_slope=no
 
 dbbench_or_tectonic=tectonic
 
-file_placement_policies=( "plaza-base-30" )
+file_placement_policies=( "plaza-adv-0.9" "plaza-adv-0.7" "plaza-adv-0.5" "plaza-adv-0.3" "plaza-adv-0.1" "zonekv" )
 
 file_size_b=$(awk "BEGIN{printf \"%.0f\", $file_size_mb * $MB}")
 buffer_pages=$(awk "BEGIN{printf \"%.0f\", $file_size_mb * 256}")
@@ -55,15 +55,6 @@ fi
 dir=s${ssd_size_gb}_z${zone_size_mb}_fs${file_size_mb}_r${size_ratio}_fl0-${files_in_l0}_lc${level_count}_ws${workload_size_gb}_wd-${workload_dist}_ks${key_size_b}_vs${value_size_b}_ec${entry_count}_cp${compaction_pri}_gcint${gc_interval}
 subdir_1=rsvz-${reserve_count}_gcstart-${gc_start_level}_gcstop-${gc_stop_level}_gcslp-${gc_slope}
 
-# Handles the plaza-int / plaza-adv variants, which reuse a single setup script
-# instead of having a dedicated one per variant. The base script is called first,
-# then the variant-specific parameters are overridden.
-#   plaza-int-x        -> setup_plaza-int.sh, then logname + zones_to_open (1,1,x,x)
-#   plaza-adv-f-x      -> setup_plaza-adv.sh, then logname + zones_to_open (1,1,x,x)
-#                         + zone_fill_threshold (f)
-# The numeric part is only used when it parses cleanly; otherwise it falls back to
-# the defaults. So bare "plaza-int" and any malformed "plaza-int-*" resolve to
-# plaza-int-4, and bare "plaza-adv" / malformed "plaza-adv-*" to plaza-adv-0.8-4.
 setup_plaza_variant() {
     local policy="$1"
 
@@ -75,15 +66,18 @@ setup_plaza_variant() {
                 -e "s/^zones_to_open .*/zones_to_open 1,1,${x},${x},${x},${x},${x},${x}/" \
             ${ZENFS_PARAMS}
     elif [[ "${policy}" == plaza-adv* ]]; then
-        local f=0.8 x=4
-        if [[ "${policy}" =~ ^plaza-adv-([0-9]*\.?[0-9]+)-([0-9]+)$ ]]; then
-            f="${BASH_REMATCH[1]}"
-            x="${BASH_REMATCH[2]}"
-        fi
+        local t=0
+        [[ "${policy}" =~ ^plaza-adv-([0-9]*\.?[0-9]+)$ ]] && t="${BASH_REMATCH[1]}"
         ./scripts/setup_plaza-adv.sh
-        sed -i  -e "s/^logname .*/logname plaza-adv-${f}-${x}.log/" \
-                -e "s/^zones_to_open .*/zones_to_open 1,1,${x},${x},${x},${x},${x},${x}/" \
-                -e "s/^zone_fill_threshold .*/zone_fill_threshold ${f}/" \
+        sed -i  -e "s/^logname .*/logname plaza-adv-${t}.log/" \
+                -e "s/^nearest_newzone_threshold .*/nearest_newzone_threshold ${t}/" \
+            ${ZENFS_PARAMS}
+    elif [[ "${policy}" == plaza-base-* ]]; then
+        local t=0.3
+        [[ "${policy}" =~ ^plaza-base-([0-9]*\.?[0-9]+)$ ]] && t="${BASH_REMATCH[1]}"
+        ./scripts/setup_plaza-base-x.sh
+        sed -i  -e "s/^logname .*/logname plaza-base-${t}.log/" \
+                -e "s/^nearest_newzone_threshold .*/nearest_newzone_threshold ${t}/" \
             ${ZENFS_PARAMS}
     else
         echo "setup_plaza_variant: '${policy}' is not a plaza variant" >&2
@@ -97,18 +91,18 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
     subdir_2=fp-${file_placement_policy}
     fullpath=${REAL_HOME}/${dir}/${subdir_1}/${subdir_2}
 
+    if [[ "${file_placement_policy}" == plaza-int* || "${file_placement_policy}" == plaza-adv* || "${file_placement_policy}" == plaza-base-* ]]; then
+        setup_plaza_variant "${file_placement_policy}"
+    else
+        ./scripts/setup_${file_placement_policy}.sh
+    fi
+
     sed -i  -e   "s/^logname .*/logname ${file_placement_policy}.log/" \
             -e   "s/^gc_pause_seconds .*/gc_pause_seconds ${gc_interval}/" \
             -e   "s/^gc_start_level .*/gc_start_level ${gc_start_level}/" \
             -e   "s/^reserve_zone_count .*/reserve_zone_count ${reserve_count}/" \
             -e   "s/^buffer_size_megabytes .*/buffer_size_megabytes 1/" \
         ${ZENFS_PARAMS}
-
-    if [[ "${file_placement_policy}" == plaza-int* || "${file_placement_policy}" == plaza-adv* ]]; then
-        setup_plaza_variant "${file_placement_policy}"
-    else
-        ./scripts/setup_${file_placement_policy}.sh
-    fi
 
     if [[ "${gc_stop_level}" != "no" ]]; then
         sed -i  -e "s/^gc_stop_level .*/gc_stop_level ${gc_stop_level}/" \
