@@ -133,6 +133,7 @@ for file_placement_policy in "${file_placement_policies[@]}"; do
 
     mkdir -p ${fullpath}
     mv *.log ${fullpath}/
+    cp ./scripts/analyze.py ${fullpath}/
 done
 
 sudo chown -R ${REAL_USER} ${REAL_HOME}/${dir}
