@@ -30,7 +30,7 @@ fi
 source "$HOME/.cargo/env"
 rustup default nightly
 
-git submodule update --init --recursive
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/submodules.sh"
 
 mkdir -p build
 cd build

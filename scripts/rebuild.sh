@@ -4,7 +4,7 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-git submodule update --init --recursive
+"$PROJECT_ROOT/scripts/submodules.sh"
 
 mkdir -p build
 cd build

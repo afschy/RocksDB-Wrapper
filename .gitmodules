@@ -1,0 +1,5 @@
+[submodule "lib/rocksdb"]
+	path = lib/rocksdb
+	url = https://github.com/afschy/rocksdb_modified.git
+	branch = memory-project
+	update = merge

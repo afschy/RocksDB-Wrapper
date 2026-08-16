@@ -12,24 +12,32 @@ Ensure the following are installed:
 
 ---
 
-## Fork and Add Submodules
+## Clone and Submodules
 
-The repository **does not include submodules by default**. You need to add them manually after forking:
+RocksDB is included as a submodule at `lib/rocksdb`, pinned to the `memory-project`
+branch of [rocksdb_modified](https://github.com/afschy/rocksdb_modified).
 
 ```bash
-# Clone your fork
 git clone <your-fork-url>
 cd RocksDB-Wrapper
 
-# Add submodules
-git submodule add https://github.com/SSD-Brandeis/RocksDB-SSD.git lib/rocksdb
-git submodule add https://github.com/SSD-Brandeis/Tectonic.git lib/tectonic
-
-# Initialize and fetch
-git submodule update --init --recursive
+# Fetch submodules and check out their configured branches
+./scripts/submodules.sh
 ```
 
-> Note: The `KV-WorkloadGenerator` submodule is **deprecated**. See [tectonic README.md](https://github.com/SSD-Brandeis/Tectonic.git) to generate the workload
+Use `./scripts/submodules.sh` rather than `git submodule update --init`: plain
+`git submodule update` always leaves a submodule on a **detached HEAD**, even
+when `.gitmodules` names a branch. The script does the update and then checks
+out the branch recorded in `.gitmodules` (`memory-project` for `lib/rocksdb`),
+with upstream tracking set. `setup.sh` and `scripts/rebuild.sh` call it for you.
+
+Once the submodule is on its branch it stays there: `.gitmodules` sets
+`update = merge`, so later `git submodule update` runs fast-forward the branch
+instead of detaching it again.
+
+> Note: `Tectonic` is not currently wired in as a submodule. The
+> `KV-WorkloadGenerator` submodule is **deprecated**. See
+> [tectonic README.md](https://github.com/SSD-Brandeis/Tectonic.git) to generate the workload
 
 ---
 
