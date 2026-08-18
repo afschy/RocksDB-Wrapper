@@ -48,8 +48,8 @@ bloom_filter=0          # 0 drops the filter policy entirely
 bits_per_key=10         # only used when bloom_filter=1
 
 # --- Workload ----------------------------------------------------------------
-key_size_b=1024
-value_size_b=3072
+key_size_b=256
+value_size_b=768
 # working_version reads its operations from workload.txt, so everything below
 # applies to db_bench only.
 entry_count=7000000

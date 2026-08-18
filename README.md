@@ -64,18 +64,21 @@ cmake --build . --parallel $(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n 
 This builds the wrapper and the submodules, producing `bin/working_version`
 and `bin/db_bench`.
 
-Two flags matter in practice:
+zstd is on by default because `--trace_compress=1` needs it, and RocksDB's own
+default is off. It requires the libzstd headers, which `setup.sh` installs
+(`libzstd-dev` on Debian/Ubuntu, `zstd` on macOS). If they are missing,
+`find_package(zstd REQUIRED)` fails at configure time — build it without by
+passing `-DWITH_ZSTD=OFF`, and traces will then have to be uncompressed.
+
+One flag is worth knowing about:
 
 ```bash
-cmake -DWITH_ZSTD=ON -DFAIL_ON_WARNINGS=OFF ..
+cmake -DFAIL_ON_WARNINGS=OFF ..
 ```
 
-* `-DWITH_ZSTD=ON` is required for `--trace_compress=1`. Without it the tracer
-  returns `NotSupported` and the run aborts rather than silently writing plain
-  text. Needs libzstd headers (`libzstd-dev`).
-* `-DFAIL_ON_WARNINGS=OFF` is needed on GCC 16, which reports a false positive
-  `-Wmaybe-uninitialized` in RocksDB's `db/blob/blob_file_reader.cc` that
-  `-Werror` then turns into a build failure.
+`-DFAIL_ON_WARNINGS=OFF` is needed on GCC 16, which reports a false positive
+`-Wmaybe-uninitialized` in RocksDB's `db/blob/blob_file_reader.cc` that
+`-Werror` then turns into a build failure.
 
 `db_bench` is built by default; turn it off with `-DWITH_DB_BENCH=OFF`.
 

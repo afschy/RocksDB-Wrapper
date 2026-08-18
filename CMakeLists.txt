@@ -28,6 +28,60 @@ else()
     endif()
 endif()
 
+# The three settings below are all FORCEd, and all of them have to be decided
+# before add_subdirectory(lib/rocksdb) picks its own defaults. FORCE matters
+# for more than precedence: a plain set(... CACHE ...) is a no-op against a
+# build directory that was configured earlier, so without it an existing
+# build/ would keep whatever it was first given, forever.
+
+# The key lookup tracer writes .zst files through RocksDB's streaming
+# compressor, which compiles in only when the ZSTD macro is defined. RocksDB
+# defaults that to OFF, producing a binary that fails at StartTrace with "This
+# build does not support zstd stream compression" instead of failing at
+# configure time. Opt out with -DWITH_TRACE_COMPRESSION=OFF if you really want
+# a build without it; RocksDB's find_package(zstd REQUIRED) fails loudly when
+# the library is missing.
+option(WITH_TRACE_COMPRESSION
+       "Build with zstd, so key lookup traces can be compressed" ON)
+if(WITH_TRACE_COMPRESSION)
+    set(WITH_ZSTD ON CACHE BOOL "Build with zstd" FORCE)
+    message(STATUS "zstd enabled; compressed key lookup traces available")
+else()
+    message(WARNING "WITH_TRACE_COMPRESSION is OFF. Traces can still be "
+                    "written, but only uncompressed: --trace_compress=1 will "
+                    "fail at runtime.")
+endif()
+
+# RocksDB forces CMAKE_BUILD_TYPE to Debug when it is unset and the source tree
+# is a git checkout, which is every checkout of this repository. That builds
+# without NDEBUG, so assertions run in the read path and db_bench prints
+# "WARNING: Assertions are enabled" on every run. Choose Release first.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type: Debug, Release, RelWithDebInfo, MinSizeRel" FORCE)
+endif()
+message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
+# RocksDB turns warnings into errors by default, and this fork predates the
+# compilers people now build it with. GCC 16.2 alone produces two false
+# positives that stop the build once optimization is on: -Wmaybe-uninitialized
+# in the blob reader (rocksdb/file_system.h:938, from
+# db/blob/blob_file_reader.cc) and -Wformat-truncation in db_bench_tool.cc.
+# Chasing them one -Wno-error= at a time is a losing game across compiler
+# versions, and a clone that will not build is worse than one that warns.
+# Warnings are still printed; they just do not fail the build. Note this only
+# ever applied to RocksDB's own sources -- its -Werror is set inside
+# lib/rocksdb's directory scope and never reached the wrapper's targets.
+set(FAIL_ON_WARNINGS OFF CACHE BOOL
+    "Treat compile warnings as errors" FORCE)
+
+# RocksDB compiles with -fno-rtti outside of Debug builds, but working_version
+# subclasses rocksdb::EventListener, and inheriting from a polymorphic RocksDB
+# class needs the base's typeinfo to have been emitted. Without this, linking
+# fails with "undefined reference to typeinfo for rocksdb::Customizable".
+set(USE_RTTI ON CACHE STRING
+    "Enable RTTI; required because the wrapper subclasses EventListener" FORCE)
+
 option(WITH_TESTS "Build with tests" OFF)
 option(WITH_TOOLS "Build with tools" OFF)
 option(WITH_ALL_TESTS "Build with all tests" OFF)

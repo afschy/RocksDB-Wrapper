@@ -5,7 +5,7 @@ OS="$(uname)"
 
 if [[ "$OS" == "Linux" ]]; then
     sudo apt-get update -y
-    sudo apt-get install -y build-essential cmake libgflags-dev curl git
+    sudo apt-get install -y build-essential cmake libgflags-dev libzstd-dev curl git
 
 elif [[ "$OS" == "Darwin" ]]; then
     if ! xcode-select -p &>/dev/null; then
@@ -17,7 +17,7 @@ elif [[ "$OS" == "Darwin" ]]; then
     fi
 
     brew update
-    brew install cmake gflags git curl
+    brew install cmake gflags zstd git curl
 
 else
     exit 1
@@ -32,6 +32,11 @@ rustup default nightly
 
 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/submodules.sh"
 
+# A build directory configured before these defaults existed keeps its old
+# CMakeCache.txt, and re-running cmake cannot undo a cached CMAKE_BUILD_TYPE.
+# This is the initial-setup script, so configure from scratch; use
+# scripts/rebuild.sh for incremental builds.
+rm -rf build
 mkdir -p build
 cd build
 cmake ..
