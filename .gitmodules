@@ -3,3 +3,6 @@
 	url = https://github.com/afschy/rocksdb_modified.git
 	branch = memory-project
 	update = merge
+[submodule "lib/tectonic"]
+	path = lib/tectonic
+	url = https://github.com/SSD-Brandeis/Tectonic.git
