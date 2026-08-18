@@ -1,8 +1,10 @@
 #ifndef DB_ENV_H_
 #define DB_ENV_H_
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "buffer.h"
 
@@ -169,6 +171,11 @@ public:
   // bloom filter bits per key
   double bits_per_key = 10; // [b]
 
+  // Build a bloom filter at all. Equivalent to bits_per_key = 0, but kept
+  // separate so a sweep can switch filters off and back on without having to
+  // remember the bits_per_key it was using.
+  bool use_bloom_filter = true; // [bloom_filter]
+
   /**
    * Compaction Priority
    * 1 for kMinOverlappingRatio
@@ -277,11 +284,20 @@ public:
   // block size for partitioned metadata. Look into table.h
   uint64_t metadata_block_size = 4096;
 
+  // If cache_index_and_filter_blocks is true, pin the index and filter blocks
+  // of L0 files in the block cache. They still occupy their charge but are
+  // never evicted while the table reader lives, so L0 point lookups stop
+  // paying for index/filter misses. No effect when the blocks are not cached
+  // in the first place.
+  bool pin_l0_filter_and_index_blocks_in_cache = false;
+
   // If cache_index_and_filter_blocks is true and the below is true, then
   // the top-level index of partitioned filter and index blocks are stored in
   // the cache, but a reference is held in the "table reader" object so the
   // blocks are pinned and only evicted from cache when the table reader is
-  // freed. This is not limited to l0 in LSM tree.
+  // freed. This is not limited to l0 in LSM tree. Only meaningful with
+  // partition_filters or a two-level index, since there is no top level to
+  // pin otherwise.
   bool pin_top_level_index_and_filter = false;
 
   /**
@@ -424,6 +440,54 @@ public:
   // until it's possible to do flush w/o causing stall or until required flush
   // is performed by someone else (foreground call or background thread).
   bool allow_write_stall = true;
+#pragma endregion
+
+#pragma region[KeyLookupTraceOptions]
+  // Path of the key lookup trace file. Empty means tracing is disabled; this
+  // is the single switch that turns the whole feature on.
+  std::string key_lookup_trace_file = ""; // [trace_file]
+
+  // Capture one in every N lookups. 1 captures all. Note that this drops whole
+  // lookups uniformly, which breaks the per-block access histories a cache
+  // simulator needs; leave it at 1 for simulation runs and control trace
+  // volume with the caller mask instead.
+  uint64_t trace_sampling_frequency = 1; // [trace_sampling]
+
+  // Stop writing once the trace file exceeds this many bytes. With compression
+  // on this counts compressed bytes and is checked once per batch, so the file
+  // may overshoot by at most one batch.
+  uint64_t trace_max_file_size = uint64_t{64} * 1024 * 1024 * 1024;
+
+  // Record the data blocks read from each file, not just the file sequence.
+  bool trace_record_blocks = true; // [trace_blocks]
+
+  // How a block is identified: 0 for ordinal (index among the file's data
+  // blocks), 1 for offset (raw byte offset). Ordinal survives the SST file
+  // being deleted but costs an index walk on first access to each file, which
+  // is real extra I/O with a partitioned index.
+  int trace_block_id_mode = 0; // [trace_block_id_mode]
+
+  // Trace file compression: 0 for none, 1 for zstd. zstd produces a standard
+  // .zst file that `zstd -d` reads.
+  int trace_compression = 0; // [trace_compress]
+
+  // zstd level, used only when trace_compression is 1. Level 1 gives most of
+  // the achievable ratio on this data at a fraction of the CPU.
+  int trace_compression_level = 1; // [trace_compression_level]
+
+  // Record data blocks read by table iterators, which covers user iterators,
+  // compaction, ingestion and verification.
+  bool trace_record_iterator_accesses = true; // [trace_iters]
+
+  // Record an iterator access only if bit (1 << caller) is set, where caller is
+  // a TableReaderCaller value. Masking out compaction (bit 10) is the main
+  // lever on trace size, since compaction typically outweighs user iterators by
+  // one to two orders of magnitude.
+  unsigned int trace_iterator_caller_mask = 0xFFFF; // [trace_caller_mask]
+
+  bool IsKeyLookupTraceEnabled() const {
+    return !key_lookup_trace_file.empty();
+  }
 #pragma endregion
 };
 #endif // DB_ENV_H_

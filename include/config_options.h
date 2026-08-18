@@ -40,8 +40,10 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   options->max_bytes_for_level_base = env->GetMaxBytesForLevelBase();
   options->max_write_buffer_number = env->max_write_buffer_number;
 
-  if (env->bits_per_key == 0) {
-    ; // do nothing
+  if (!env->use_bloom_filter || env->bits_per_key <= 0) {
+    // No filter policy at all: every point lookup that reaches a file must
+    // read its index and data blocks.
+    table_options->filter_policy.reset();
   } else {
     // currently build full filter instead of block-based filter
     table_options->filter_policy.reset(
@@ -179,6 +181,8 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   table_options->partition_filters = env->partition_filters;
   table_options->block_size = env->GetBlockSize();
   table_options->metadata_block_size = env->metadata_block_size;
+  table_options->pin_l0_filter_and_index_blocks_in_cache =
+      env->pin_l0_filter_and_index_blocks_in_cache;
   table_options->pin_top_level_index_and_filter =
       env->pin_top_level_index_and_filter;
 

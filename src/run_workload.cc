@@ -6,6 +6,8 @@
 #include <iostream>
 #include <tuple>
 
+#include "rocksdb/key_lookup_trace_options.h"
+
 #include "config_options.h"
 #include "utils.h"
 
@@ -13,7 +15,7 @@ std::string buffer_file = "workload.log";
 std::string stats_file = "stats.log";
 
 int runWorkload(std::unique_ptr<DBEnv> &env) {
-  DB *db;
+  std::unique_ptr<DB> db;
   Options options;
   WriteOptions write_options;
   ReadOptions read_options;
@@ -52,6 +54,36 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
     std::cerr << system("sudo sh -c 'echo 3 >/proc/sys/vm/drop_caches'")
               << " done" << std::endl;
 #endif
+  }
+
+  if (env->IsKeyLookupTraceEnabled()) {
+    KeyLookupTraceOptions trace_options;
+    trace_options.sampling_frequency = env->trace_sampling_frequency;
+    trace_options.max_trace_file_size = env->trace_max_file_size;
+    trace_options.record_blocks = env->trace_record_blocks;
+    trace_options.block_id_mode = env->trace_block_id_mode == 1
+                                      ? KeyLookupBlockIdMode::kOffset
+                                      : KeyLookupBlockIdMode::kOrdinal;
+    trace_options.compression =
+        env->trace_compression == 1 ? kZSTD : kNoCompression;
+    trace_options.compression_level = env->trace_compression_level;
+    trace_options.record_iterator_accesses =
+        env->trace_record_iterator_accesses;
+    trace_options.iterator_caller_mask =
+        static_cast<uint16_t>(env->trace_iterator_caller_mask);
+
+    Status trace_status =
+        db->StartKeyLookupTrace(trace_options, env->key_lookup_trace_file);
+    if (!trace_status.ok()) {
+      // A run that was asked to produce a trace and silently did not is worse
+      // than no run at all, so give up rather than carry on untraced.
+      std::cerr << "Failed to start key lookup trace: "
+                << trace_status.ToString() << std::endl;
+      db->Close();
+      return 1;
+    }
+    std::cerr << "Tracing key lookups to " << env->key_lookup_trace_file
+              << std::endl;
   }
 
   std::ifstream workload_file;
@@ -222,7 +254,7 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
 #ifdef PROFILE
   if (env->verbosity > Verbosity::NO_PRINTS)
     (*buffer) << "=====================" << std::endl;
-  LogTreeState(db, buffer, env);
+  LogTreeState(db.get(), buffer, env);
   // LogRocksDBStatistics(db, options, buffer);
 #endif // PROFILE
 
@@ -250,6 +282,14 @@ int runWorkload(std::unique_ptr<DBEnv> &env) {
   if (!s.ok())
     std::cerr << s.ToString() << std::endl;
   assert(s.ok());
+
+  if (env->IsKeyLookupTraceEnabled()) {
+    Status trace_status = db->EndKeyLookupTrace();
+    if (!trace_status.ok())
+      std::cerr << "Failed to end key lookup trace: " << trace_status.ToString()
+                << std::endl;
+  }
+
   s = db->Close();
   if (!s.ok())
     std::cerr << s.ToString() << std::endl;

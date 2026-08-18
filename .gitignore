@@ -40,3 +40,8 @@ workload.txt
 
 **/bin**
 **/build/**
+# experiment output
+results/
+curr_command.txt
+*.trace
+*.trace.zst

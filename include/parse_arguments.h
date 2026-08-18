@@ -1,4 +1,8 @@
+#include <algorithm>
 #include <iostream>
+#include <vector>
+
+#include "rocksdb/convenience.h"
 
 #include "args.hxx"
 #include "db_env.h"
@@ -53,7 +57,50 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       "The number of bits per key assigned to Bloom filter [def: 10]",
       {'b', "bits_per_key"});
   args::ValueFlag<int> block_cache_cmd(
-      group1, "bb", "Block cache size in MB [def: 8 MB]", {"bb"});
+      group1, "bb", "Block cache size in MB; 0 disables the block cache "
+      "entirely [def: 0]",
+      {"bb"});
+  args::ValueFlag<int> cache_index_and_filter_cmd(
+      group1, "cache_index_and_filter",
+      "Put index and filter blocks in the block cache instead of holding them "
+      "outside it for the table reader's lifetime. Ignored when --bb=0 "
+      "[def: 1]",
+      {"cache_index_and_filter"});
+  args::ValueFlag<int> pin_l0_cmd(
+      group1, "pin_l0",
+      "Pin the index and filter blocks of L0 files in the block cache. "
+      "Requires --cache_index_and_filter=1 [def: 0]",
+      {"pin_l0"});
+  args::ValueFlag<int> pin_top_level_cmd(
+      group1, "pin_top_level",
+      "Pin the top-level index of partitioned index/filter blocks in the "
+      "block cache. Only meaningful with --partition_filters=1 or "
+      "--index_type=3 [def: 0]",
+      {"pin_top_level"});
+  args::ValueFlag<int> partition_filters_cmd(
+      group1, "partition_filters",
+      "Use partitioned filters. Requires --index_type=3 [def: 0]",
+      {"partition_filters"});
+  args::ValueFlag<int> index_type_cmd(
+      group1, "index_type",
+      "[Index type: 1 for kBinarySearch, 2 for kHashSearch, 3 for "
+      "kTwoLevelIndexSearch, 4 for kBinarySearchWithFirstKey; def: 1]",
+      {"index_type"});
+  args::ValueFlag<int> fill_cache_cmd(
+      group1, "fill_cache",
+      "Insert blocks read by queries into the block cache. 0 leaves the cache "
+      "contents untouched by reads [def: 0]",
+      {"fill_cache"});
+  args::ValueFlag<int> compression_cmd(
+      group1, "compression",
+      "[Block compression: 1 none, 2 snappy, 3 zlib, 4 bzip2, 5 lz4, 6 lz4hc, "
+      "7 xpress, 8 zstd; def: 1]",
+      {"compression"});
+  args::ValueFlag<int> bloom_filter_cmd(
+      group1, "bloom_filter",
+      "Build bloom filters. 0 drops the filter policy, so every lookup that "
+      "reaches a file reads its index and data blocks [def: 1]",
+      {"bloom_filter"});
   args::ValueFlag<int> enable_perf_cmd(
       group1, "enable_perf_iostat",
       "Enable RocksDB's internal Perf and IOstat [def: 0]", {"perf"});
@@ -80,6 +127,46 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       "Set the priority of write requests (0 means compactions aren't "
       "prioritized) [def: 1]",
       {"lowpri"});
+
+  args::ValueFlag<std::string> trace_file_cmd(
+      group1, "trace_file",
+      "Key lookup trace output path. Empty disables tracing [def: \"\"]",
+      {"trace_file"});
+  args::ValueFlag<unsigned long long> trace_sampling_cmd(
+      group1, "trace_sampling",
+      "Capture one in every N lookups; 1 captures all. Breaks per-block "
+      "access histories, so leave at 1 for cache simulation [def: 1]",
+      {"trace_sampling"});
+  args::ValueFlag<unsigned long long> trace_max_file_size_cmd(
+      group1, "trace_max_file_size",
+      "Stop tracing once the trace file exceeds this many bytes [def: 64 GB]",
+      {"trace_max_file_size"});
+  args::ValueFlag<int> trace_blocks_cmd(
+      group1, "trace_blocks",
+      "Record data blocks, not just the file sequence [def: 1]",
+      {"trace_blocks"});
+  args::ValueFlag<int> trace_block_id_mode_cmd(
+      group1, "trace_block_id_mode",
+      "[Block identifier: 0 for ordinal, 1 for offset; def: 0]",
+      {"trace_block_id_mode"});
+  args::ValueFlag<int> trace_compress_cmd(
+      group1, "trace_compress",
+      "[Trace compression: 0 for none, 1 for zstd; def: 0]",
+      {"trace_compress"});
+  args::ValueFlag<int> trace_compression_level_cmd(
+      group1, "trace_compression_level",
+      "zstd level, used only when --trace_compress=1 [def: 1]",
+      {"trace_compression_level"});
+  args::ValueFlag<int> trace_iters_cmd(
+      group1, "trace_iters",
+      "Record blocks read by table iterators, which covers user iterators and "
+      "compaction [def: 1]",
+      {"trace_iters"});
+  args::ValueFlag<unsigned int> trace_caller_mask_cmd(
+      group1, "trace_caller_mask",
+      "Record an iterator access only if bit (1 << TableReaderCaller) is set. "
+      "Compaction is bit 10, so 64511 excludes it [def: 65535]",
+      {"trace_caller_mask"});
 
   try {
     parser.ParseCLI(argc, argv);
@@ -134,6 +221,26 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       bits_per_key_cmd ? args::get(bits_per_key_cmd) : env->bits_per_key;
   env->block_cache =
       block_cache_cmd ? args::get(block_cache_cmd) : env->block_cache;
+  env->cache_index_and_filter_blocks =
+      cache_index_and_filter_cmd ? args::get(cache_index_and_filter_cmd)
+                                 : env->cache_index_and_filter_blocks;
+  env->pin_l0_filter_and_index_blocks_in_cache =
+      pin_l0_cmd ? args::get(pin_l0_cmd)
+                 : env->pin_l0_filter_and_index_blocks_in_cache;
+  env->pin_top_level_index_and_filter =
+      pin_top_level_cmd ? args::get(pin_top_level_cmd)
+                        : env->pin_top_level_index_and_filter;
+  env->partition_filters = partition_filters_cmd
+                               ? args::get(partition_filters_cmd)
+                               : env->partition_filters;
+  env->index_type = index_type_cmd ? args::get(index_type_cmd)
+                                   : env->index_type;
+  env->fill_cache =
+      fill_cache_cmd ? args::get(fill_cache_cmd) : env->fill_cache;
+  env->use_bloom_filter = bloom_filter_cmd ? args::get(bloom_filter_cmd)
+                                           : env->use_bloom_filter;
+  env->compression =
+      compression_cmd ? args::get(compression_cmd) : env->compression;
   env->SetPerfStat(enable_perf_cmd ? args::get(enable_perf_cmd)
                                    : env->IsPerfStatEnabled());
   env->SetIOStat(enable_iostat_cmd ? args::get(enable_iostat_cmd)
@@ -144,5 +251,91 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   env->SetShowProgress(show_progress_cmd ? args::get(show_progress_cmd)
                                          : env->IsShowProgressEnabled());
   env->low_pri = low_pri_cmd ? args::get(low_pri_cmd) : env->low_pri;
+
+  env->key_lookup_trace_file = trace_file_cmd ? args::get(trace_file_cmd)
+                                              : env->key_lookup_trace_file;
+  env->trace_sampling_frequency = trace_sampling_cmd
+                                      ? args::get(trace_sampling_cmd)
+                                      : env->trace_sampling_frequency;
+  env->trace_max_file_size = trace_max_file_size_cmd
+                                 ? args::get(trace_max_file_size_cmd)
+                                 : env->trace_max_file_size;
+  env->trace_record_blocks = trace_blocks_cmd ? args::get(trace_blocks_cmd)
+                                              : env->trace_record_blocks;
+  env->trace_block_id_mode = trace_block_id_mode_cmd
+                                 ? args::get(trace_block_id_mode_cmd)
+                                 : env->trace_block_id_mode;
+  env->trace_compression =
+      trace_compress_cmd ? args::get(trace_compress_cmd) : env->trace_compression;
+  env->trace_compression_level = trace_compression_level_cmd
+                                     ? args::get(trace_compression_level_cmd)
+                                     : env->trace_compression_level;
+  env->trace_record_iterator_accesses =
+      trace_iters_cmd ? args::get(trace_iters_cmd)
+                      : env->trace_record_iterator_accesses;
+  env->trace_iterator_caller_mask = trace_caller_mask_cmd
+                                        ? args::get(trace_caller_mask_cmd)
+                                        : env->trace_iterator_caller_mask;
+
+  // Whether a codec is usable depends on what the build linked, not just on
+  // the enum, so check rather than let DB::Open fail obscurely later.
+  if (env->compression < 1 || env->compression > 8) {
+    std::cerr << "--compression must be 1..8" << std::endl;
+    return 1;
+  }
+  {
+    rocksdb::CompressionType requested =
+        static_cast<rocksdb::CompressionType>(env->compression - 1);
+    const std::vector<rocksdb::CompressionType> &supported =
+        rocksdb::GetSupportedCompressions();
+    if (std::find(supported.begin(), supported.end(), requested) ==
+        supported.end()) {
+      std::cerr << "--compression=" << env->compression
+                << " is not compiled into this build. Available:";
+      for (rocksdb::CompressionType type : supported) {
+        std::cerr << " " << (static_cast<int>(type) + 1);
+      }
+      std::cerr << std::endl;
+      return 1;
+    }
+  }
+
+  if (env->index_type < 1 || env->index_type > 4) {
+    std::cerr << "--index_type must be 1, 2, 3 or 4" << std::endl;
+    return 1;
+  }
+  // RocksDB silently clears partition_filters when the index is not
+  // partitioned, which would make a sweep entry a no-op without saying so.
+  if (env->partition_filters && env->index_type != 3) {
+    std::cerr << "--partition_filters=1 requires --index_type=3 "
+                 "(kTwoLevelIndexSearch)"
+              << std::endl;
+    return 1;
+  }
+  if (env->block_cache == 0 && env->pin_l0_filter_and_index_blocks_in_cache) {
+    std::cerr << "--pin_l0=1 has no meaning with --bb=0 (no block cache)"
+              << std::endl;
+    return 1;
+  }
+
+  if (env->IsKeyLookupTraceEnabled()) {
+    if (env->trace_sampling_frequency < 1) {
+      std::cerr << "--trace_sampling must be at least 1" << std::endl;
+      return 1;
+    }
+    if (env->trace_block_id_mode != 0 && env->trace_block_id_mode != 1) {
+      std::cerr << "--trace_block_id_mode must be 0 (ordinal) or 1 (offset)"
+                << std::endl;
+      return 1;
+    }
+    if (env->trace_compression != 0 && env->trace_compression != 1) {
+      std::cerr << "--trace_compress must be 0 (none) or 1 (zstd)" << std::endl;
+      return 1;
+    }
+    if (env->trace_iterator_caller_mask > 0xFFFF) {
+      std::cerr << "--trace_caller_mask must fit in 16 bits" << std::endl;
+      return 1;
+    }
+  }
   return 0;
 }
