@@ -105,20 +105,28 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/rocksdb/include)
 # include_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/KV-WorkloadGenerator/include) [deprecated]
 
-# Build tectonic. It is not wired in as a submodule, so build it only when it
-# is actually checked out; otherwise an unconditional ALL target here fails the
-# whole build on a machine that has no lib/tectonic or no cargo.
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/lib/tectonic/Cargo.toml)
+# Build tectonic, but only when it can actually be built: that needs both the
+# checkout and a Rust toolchain. An unconditional ALL target here fails the
+# whole build on a machine missing either, and working_version depends on it,
+# so it takes that down too.
+find_program(CARGO_EXECUTABLE cargo)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/lib/tectonic/Cargo.toml AND CARGO_EXECUTABLE)
     add_custom_target(tectonic-cli ALL
-        COMMAND cargo build --release
+        COMMAND ${CARGO_EXECUTABLE} build --release
         COMMAND ${CMAKE_COMMAND} -E copy
                 ${CMAKE_CURRENT_SOURCE_DIR}/lib/tectonic/target/release/tectonic-cli
                 ${CMAKE_CURRENT_SOURCE_DIR}/bin/tectonic-cli
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib/tectonic
         COMMENT "Building tectonic in release mode"
     )
-else()
+elseif(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/lib/tectonic/Cargo.toml)
     message(STATUS "lib/tectonic not found; skipping the tectonic-cli target")
+else()
+    # A warning rather than a status: rebuild.sh ends in `clear`, so a status
+    # line here would scroll away and bin/tectonic-cli would just be missing.
+    message(WARNING "cargo not found; skipping the tectonic-cli target. "
+                    "bin/tectonic-cli will not be built. Install a Rust "
+                    "toolchain and re-run cmake if you need it.")
 endif()
 
 add_subdirectory(lib/rocksdb)
