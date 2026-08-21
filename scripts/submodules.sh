@@ -25,6 +25,7 @@ git submodule foreach --quiet --recursive '
         git checkout --quiet -b "$branch" "$pinned"
         git branch --quiet --set-upstream-to "origin/$branch" "$branch" 2>/dev/null || true
     fi
+    git pull
 
     if [ "$(git rev-parse HEAD)" != "$pinned" ]; then
         echo "$displaypath: warning: local $branch is at $(git rev-parse --short HEAD), superproject pins $(git rev-parse --short "$pinned")"
