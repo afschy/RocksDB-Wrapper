@@ -112,11 +112,12 @@ cmake -DFAIL_ON_WARNINGS=OFF ..
         -F[file_size],
         --file_size=[file_size]           Size of one SST file [def: 256 KB]
         -c[compaction_pri],
-        --compaction_pri=[compaction_pri] [Compaction priority: 1 for
-                                          kMinOverlappingRatio, 2 for
-                                          kByCompensatedSize, 3 for
-                                          kOldestLargestSeqFirst, 4 for
-                                          kOldestSmallestSeqFirst; def: 1]
+        --compaction_pri=[compaction_pri] [Compaction priority: 0 for
+                                          kByCompensatedSize, 1 for
+                                          kOldestLargestSeqFirst, 2 for
+                                          kOldestSmallestSeqFirst, 3 for
+                                          kMinOverlappingRatio, 4 for
+                                          kRoundRobin; def: 3]
         -C[compaction_style],
         --compaction_style=[compaction_style]
                                           [Compaction priority: 1 for

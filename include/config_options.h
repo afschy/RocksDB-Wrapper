@@ -50,20 +50,22 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
         NewBloomFilterPolicy(env->bits_per_key, false));
   }
 
+  // The numbering is RocksDB's own CompactionPri enum, so a value means the
+  // same thing here as it does to db_bench's --compaction_pri.
   switch (env->compaction_pri) {
-  case 1:
-    options->compaction_pri = CompactionPri::kMinOverlappingRatio;
-    break;
-  case 2:
+  case 0:
     options->compaction_pri = CompactionPri::kByCompensatedSize;
     break;
-  case 3:
+  case 1:
     options->compaction_pri = CompactionPri::kOldestLargestSeqFirst;
     break;
-  case 4:
+  case 2:
     options->compaction_pri = CompactionPri::kOldestSmallestSeqFirst;
     break;
-  case 5:
+  case 3:
+    options->compaction_pri = CompactionPri::kMinOverlappingRatio;
+    break;
+  case 4:
     options->compaction_pri = CompactionPri::kRoundRobin;
     break;
   default:

@@ -18,7 +18,7 @@ GB=$((1024 * MB))
 ##############################################################################
 
 # Which binary drives the workload: dbbench | tectonic
-runner=dbbench
+runner=tectonic
 
 # --- LSM shape ---------------------------------------------------------------
 file_size_mb=32
@@ -26,6 +26,9 @@ size_ratio=4
 files_in_l0=6
 level_count=7
 file_to_memtable_size_ratio=1
+# RocksDB's CompactionPri enum, same numbering for both runners: 0 by
+# compensated size, 1 oldest largest seq, 2 oldest smallest seq, 3 min
+# overlapping ratio (RocksDB's default), 4 round robin.
 compaction_pri=4
 clear_system_cache=0    # 1 makes working_version shell out to sudo
 

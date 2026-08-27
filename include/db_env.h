@@ -177,14 +177,15 @@ public:
   bool use_bloom_filter = true; // [bloom_filter]
 
   /**
-   * Compaction Priority
-   * 1 for kMinOverlappingRatio
-   * 2 for kByCompensatedSize
-   * 3 for kOldestLargestSeqFirst
-   * 4 for kOldestSmallestSeqFirst
-   * 5 for kRoundRobin
+   * Compaction Priority. These are RocksDB's own CompactionPri values, so
+   * they carry the same meaning as db_bench's --compaction_pri.
+   * 0 for kByCompensatedSize
+   * 1 for kOldestLargestSeqFirst
+   * 2 for kOldestSmallestSeqFirst
+   * 3 for kMinOverlappingRatio
+   * 4 for kRoundRobin
    */
-  uint16_t compaction_pri = 1; // [c] lower case
+  uint16_t compaction_pri = 3; // [c] lower case
 
   /**
    * Memtable Factory

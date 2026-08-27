@@ -42,9 +42,9 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
                                       {'F', "file_size"});
   args::ValueFlag<int> compaction_pri_cmd(
       group1, "compaction_pri",
-      "[Compaction priority: 1 for kMinOverlappingRatio, 2 for "
-      "kByCompensatedSize, 3 for kOldestLargestSeqFirst, 4 for "
-      "kOldestSmallestSeqFirst; def: 1]",
+      "[Compaction priority: 0 for kByCompensatedSize, 1 for "
+      "kOldestLargestSeqFirst, 2 for kOldestSmallestSeqFirst, 3 for "
+      "kMinOverlappingRatio, 4 for kRoundRobin; def: 3]",
       {'c', "compaction_pri"});
   args::ValueFlag<int> compaction_style_cmd(
       group1, "compaction_style",
