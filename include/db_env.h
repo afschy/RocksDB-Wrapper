@@ -8,24 +8,42 @@
 
 #include "buffer.h"
 
+// Every default below is db_bench's default for the same RocksDB option, so
+// that `working_version` and `db_bench` launched with no flags at all hand
+// RocksDB the same configuration. Where db_bench declares no flag of its own,
+// the value here is the Options() / BlockBasedTableOptions() default, which is
+// exactly what db_bench leaves in place.
+//
+// Two consequences worth knowing before changing anything here: a bare run now
+// writes a WAL and asks for snappy, because that is what a bare db_bench does.
+
 namespace Default {
 
+// B * E is the block size and P * B * E the memtable size. db_bench has no
+// P/B/E model of its own; what it has is block_size (4096) and
+// write_buffer_size (64 MB), and these three reproduce both exactly.
 const unsigned int ENTRY_SIZE = 64;
 const unsigned int ENTRIES_PER_PAGE = 64;
-const unsigned int BUFFER_SIZE_IN_PAGES = 128;
+const unsigned int BUFFER_SIZE_IN_PAGES = 16384;
 
-const double SIZE_RATIO = 4;
+// max_bytes_for_level_multiplier
+const double SIZE_RATIO = 10;
 const unsigned int FILE_TO_MEMTABLE_SIZE_RATIO = 1;
 
 // The default and the minimum number is 2
 const int MAX_WRITE_BUFFER_NUMBER = 2;
-const int LEVEL0_FILE_NUM_COMPACTION_TRIGGER = SIZE_RATIO;
+// RocksDB's own default, deliberately independent of SIZE_RATIO. db_bench
+// keeps the trigger and the multiplier as separate flags, so tying them
+// together here would make --size_ratio silently move a second knob.
+const int LEVEL0_FILE_NUM_COMPACTION_TRIGGER = 4;
 
 // kMaxMultiTrivialMove, default is 4 for RocksDB
 const size_t MAX_MULTI_TRIVIAL_MOVE = 4;
 
-const int MAX_OPEN_FILES = 1000;
-const int MAX_FILE_OPENING_THREADS = 1000;
+// -1 is unlimited: every table reader stays open, so a file's index and filter
+// blocks are read once rather than re-read after a table cache eviction.
+const int MAX_OPEN_FILES = -1;
+const int MAX_FILE_OPENING_THREADS = 16;
 
 } // namespace Default
 
@@ -99,12 +117,32 @@ public:
 
   long GetTargetFileSizeBase() const { return GetBufferSize(); }
 
-  // control maximum total data size for level base (i.e. level 1)
-  uint64_t GetMaxBytesForLevelBase() const { return GetTargetFileSizeBase(); }
+  // Control maximum total data size for level base (i.e. level 1). Held
+  // independent of the memtable size, the way db_bench holds it: pinning L1 to
+  // one buffer buys an extra populated level and all the compaction that goes
+  // with it. 0 falls back to the old buffer-derived value.
+  uint64_t GetMaxBytesForLevelBase() const {
+    return max_bytes_for_level_base != 0 ? max_bytes_for_level_base
+                                         : GetTargetFileSizeBase();
+  }
 
 #pragma region[DBOptions]
   bool create_if_missing = true;
-  bool clear_system_cache = true;
+  // db_bench sets this unconditionally. Inert while only the default column
+  // family is used, but kept so the option dumps agree.
+  bool create_missing_column_families = true;
+
+  // Allow WAL and memtable writes to be pipelined onto separate threads.
+  bool enable_pipelined_write = true;
+
+  // 2^n shards in the table cache.
+  int table_cache_numshardbits = 4;
+
+  // Bytes per second allowed to the DB once level0_slowdown_writes_trigger or
+  // the soft pending compaction limit kicks in.
+  uint64_t delayed_write_rate = 8388608;
+  // db_bench never drops the page cache, so neither does a bare run here.
+  bool clear_system_cache = false;
 
   // number of open files that can be used by the DB
   int max_open_files = Default::MAX_OPEN_FILES;
@@ -119,12 +157,12 @@ public:
   bool enable_thread_tracking = false;
 
   // if true, allow multi-writers to update mem tables in parallel.
-  bool allow_concurrent_memtable_write = false;
+  bool allow_concurrent_memtable_write = true;
 
   // the memory size for stats snapshots, default is 1MB
   size_t stats_history_buffer_size = 1024 * 1024;
   // print malloc stats together with rocksdb.stats
-  bool dump_malloc_stats = false;
+  bool dump_malloc_stats = true;
   // by default RocksDB will flush all memtables on DB close
   bool avoid_flush_during_shutdown = false;
 
@@ -132,7 +170,9 @@ public:
   // access pattern is random, when a sst file is opened.
   bool advise_random_on_open = true;
 
-  // periodicity when obsolete files get deleted. default is 6 hours
+  // periodicity when obsolete files get deleted. default is 6 hours.
+  // db_bench declares a flag for this but documents it as ignored and never
+  // applies it, so RocksDB's default is what db_bench actually runs with.
   uint64_t delete_obsolete_files_period_micros = 6ULL * 60 * 60 * 1000000;
 
   // allow the OS to mmap file for reading sst tables.
@@ -168,13 +208,15 @@ public:
   // write buffer.
   int max_write_buffer_number = Default::MAX_WRITE_BUFFER_NUMBER;
 
-  // bloom filter bits per key
+  // bloom filter bits per key, used only when use_bloom_filter is on
   double bits_per_key = 10; // [b]
 
   // Build a bloom filter at all. Equivalent to bits_per_key = 0, but kept
   // separate so a sweep can switch filters off and back on without having to
   // remember the bits_per_key it was using.
-  bool use_bloom_filter = true; // [bloom_filter]
+  // Off by default because db_bench's --bloom_bits defaults to -1, which
+  // leaves BlockBasedTableOptions().filter_policy in place, and that is null.
+  bool use_bloom_filter = false; // [bloom_filter]
 
   /**
    * Compaction Priority. These are RocksDB's own CompactionPri values, so
@@ -219,43 +261,76 @@ public:
       Default::LEVEL0_FILE_NUM_COMPACTION_TRIGGER;
 
   // number of levels for this database
-  int num_levels = 10;
+  int num_levels = 7;
+
+  // Maximum total size of level 1, in bytes. 0 means "one memtable", i.e. the
+  // buffer-derived value GetMaxBytesForLevelBase() falls back to.
+  uint64_t max_bytes_for_level_base = 256ULL * 1024 * 1024;
 
   // by default target_file_size_multiplier is 1, which means
   // by default files in different levels will have similar size.
   int target_file_size_multiplier = 1;
 
-  // maximum number of concurrent background jobs (compactions and flushes)
-  // if it is 1, RocksDB still run 2 threads one for compaction and
-  // another for flush
-  int max_background_jobs = 1;
+  // maximum number of concurrent background jobs (compactions and flushes).
+  // RocksDB splits this as flushes = max(1, jobs / 4) and compactions =
+  // max(1, jobs - flushes), so 2 is one of each -- the same split db_bench
+  // gets from --max_background_compactions=1 --max_background_flushes=1.
+  int max_background_jobs = 2;
 
-  // No pending compaction anytime, try and see
-  int soft_pending_compaction_bytes_limit = 0;
-  int hard_pending_compaction_bytes_limit = 0;
+  // Explicit per-pool limits. -1 on both leaves the split above in charge;
+  // setting either one takes over completely, giving max(1, value) of each.
+  int max_background_compactions = -1;
+  int max_background_flushes = -1;
 
-  // turn off periodic compactions
-  uint64_t periodic_compaction_seconds = 0;
+  // Write rate is throttled once the estimated pending compaction bytes pass
+  // the soft limit, and writes stop at the hard limit. 0 disables each.
+  uint64_t soft_pending_compaction_bytes_limit = 64ULL * 1024 * 1024 * 1024;
+  uint64_t hard_pending_compaction_bytes_limit = 128ULL * 1024 * 1024 * 1024;
+
+  // FIFO compaction bounds, read only under compaction_style=3. db_bench sets
+  // both explicitly, and its values differ from RocksDB's own defaults.
+  uint64_t fifo_max_table_files_size = 0;
+  bool fifo_allow_compaction = true;
+
+  // RocksDB's "unset" sentinel, which leveled compaction sanitizes to 30 days.
+  // 0 turns periodic compaction off.
+  uint64_t periodic_compaction_seconds = 0xfffffffffffffffeULL;
+
+  // Memtable arena allocation unit. 0 lets RocksDB pick, which is
+  // write_buffer_size / 8 capped at 1 MB -- what db_bench leaves in place.
+  size_t arena_block_size = 0;
 
   // use O_DIRECT for writes in background flush and compactions.
-  bool use_direct_io_for_flush_and_compaction = true;
+  bool use_direct_io_for_flush_and_compaction = false;
   // enable direct I/O mode for read/write. Files will be opened in "direct I/O"
   // mode which means that data r/w from the disk will not be cached.
-  bool use_direct_reads = true;
+  bool use_direct_reads = false;
 
 #pragma region[TableOptions]
   // disable block cache if this is set to true
   bool no_block_cache = false;
 
-  // 0 means, cache will be set to nullptr: if no_block_cache is true otherwise
-  // RocksDB will automatically create and use a 32MB internal cache
-  int block_cache = 0;
+  // Block cache size in MB. 0 sets no_block_cache and passes nullptr, which is
+  // what db_bench does when --cache_size is not positive.
+  int block_cache = 32;
 
-  // high priority pool ratio
-  double block_cache_high_priority_ratio = 0.5;
+  /**
+   * Block Cache Type
+   * 1 for LRUCache
+   * 2 for HyperClockCache (auto-tuned entry charge)
+   *
+   * db_bench's --cache_type defaults to "hyper_clock_cache".
+   */
+  uint16_t cache_type = 2;
+
+  // 2^n shards in the block cache; negative means let RocksDB decide.
+  int cache_numshardbits = -1;
+
+  // high priority pool ratio, LRUCache only
+  double block_cache_high_priority_ratio = 0.0;
 
   // wheather to put index/filter blocks in the block cache
-  bool cache_index_and_filter_blocks = true;
+  bool cache_index_and_filter_blocks = false;
 
   // If used, For every data block we load into memory, we will create a bitmap
   // of size ((block_size / `read_amp_bytes_per_bit`) / 8) bytes. This bitmap
@@ -307,17 +382,17 @@ public:
    * 2 for kShortenSeparators
    * 3 for kShortenSeparatorsAndSuccessor
    */
-  uint16_t index_shortening = 1;
+  uint16_t index_shortening = 3;
 
   // This is used to close a block before it reaches the configured
   // 'block_size'. If the percentage of free space in the current block is less
   // than this specified number and adding a new record to the block will
   // exceed the configured block size, then this block will be closed and the
   // new record will be written to the next block.
-  int block_size_deviation = 0;
+  int block_size_deviation = 10;
 
   // store index block on disk in compressed format
-  bool enable_index_compression = false;
+  bool enable_index_compression = true;
 #pragma endregion
 
   /**
@@ -333,7 +408,9 @@ public:
    * 9 for kZSTDNotFinalCompression March 01, 2025 [deprecated]
    * 10 for kDisableCompressionOption
    */
-  uint16_t compression = 1;
+  // db_bench's --compression_type defaults to "snappy". A build without snappy
+  // linked warns and falls back to no compression, as db_bench does.
+  uint16_t compression = 2;
 
 #pragma region[ReadOptions]
   // if true, all data read from underlying storage
@@ -342,7 +419,7 @@ public:
 
   // should the "data block"/"index block" read
   // for this iteration be placed in block cache?
-  bool fill_cache = false;
+  bool fill_cache = true;
 
   // if true, range tombstones handling will be skipped in key lookup paths
   // look into options.h
@@ -360,14 +437,14 @@ public:
 
 #pragma region[WriteOptions]
   // if true, this write request is of lower priority if compaction is behind
-  bool low_pri = true;
+  bool low_pri = false;
 
   // if true, the write will be flushed from the operating system buffer cache
   // before the write is considered complete. If true, write will be slower.
-  bool sync = false; // FIXME: (shubham) Isn't this should be true.
+  bool sync = false;
 
   // if true, write will not first go to the write ahead log.
-  bool disableWAL = true;
+  bool disableWAL = false;
 
   // if true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete()
@@ -402,12 +479,10 @@ public:
 
   // Soft limit on number of level-0 files.
   // We start slowing down writes at this point.
-  // int level0_slowdown_writes_trigger = 1;
-  int level0_slowdown_writes_trigger = Default::SIZE_RATIO - 1;
+  int level0_slowdown_writes_trigger = 20;
 
   // maximum number of level-0 files. RocksDB stop writes at this point
-  // int level0_stop_writes_trigger = 1;
-  int level0_stop_writes_trigger = Default::SIZE_RATIO;
+  int level0_stop_writes_trigger = 36;
 
   // After writing every SST file, reopen it and read all the keys.
   // Checks the hash of all of the keys and values written versus the
@@ -429,7 +504,7 @@ public:
   size_t inplace_update_num_locks = 10000;
 
   // measure IO stats in compactions and flushes, if true
-  bool report_bg_io_stats = true;
+  bool report_bg_io_stats = false;
 #pragma endregion
 
 #pragma region[FlushOptions]
@@ -440,7 +515,7 @@ public:
   // stall for the duration of the flush; if false the operation will wait
   // until it's possible to do flush w/o causing stall or until required flush
   // is performed by someone else (foreground call or background thread).
-  bool allow_write_stall = true;
+  bool allow_write_stall = false;
 #pragma endregion
 
 #pragma region[KeyLookupTraceOptions]

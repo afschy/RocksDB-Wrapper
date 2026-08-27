@@ -18,6 +18,10 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
 
 #pragma region[DBOptions]
   options->create_if_missing = env->create_if_missing;
+  options->create_missing_column_families = env->create_missing_column_families;
+  options->enable_pipelined_write = env->enable_pipelined_write;
+  options->table_cache_numshardbits = env->table_cache_numshardbits;
+  options->delayed_write_rate = env->delayed_write_rate;
   options->max_open_files = env->max_open_files;
   options->max_file_opening_threads = env->max_file_opening_threads;
   options->bytes_per_sync = env->bytes_per_sync;
@@ -121,11 +125,16 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
 
   options->target_file_size_multiplier = env->target_file_size_multiplier;
   options->max_background_jobs = env->max_background_jobs;
+  options->max_background_compactions = env->max_background_compactions;
+  options->max_background_flushes = env->max_background_flushes;
   options->soft_pending_compaction_bytes_limit =
       env->soft_pending_compaction_bytes_limit;
   options->hard_pending_compaction_bytes_limit =
       env->hard_pending_compaction_bytes_limit;
   options->periodic_compaction_seconds = env->periodic_compaction_seconds;
+  options->compaction_options_fifo.max_table_files_size =
+      env->fifo_max_table_files_size;
+  options->compaction_options_fifo.allow_compaction = env->fifo_allow_compaction;
   options->use_direct_io_for_flush_and_compaction =
       env->use_direct_io_for_flush_and_compaction;
   options->use_direct_reads = env->use_direct_reads;
@@ -136,9 +145,20 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
     table_options->cache_index_and_filter_blocks = false;
   } else {
     table_options->no_block_cache = false;
-    auto BLOCK_CACHE_TIMES_MB = env->block_cache * 1024 * 1024;
-    std::shared_ptr<Cache> cache = NewLRUCache(
-        BLOCK_CACHE_TIMES_MB, -1, false, env->block_cache_high_priority_ratio);
+    size_t BLOCK_CACHE_TIMES_MB =
+        static_cast<size_t>(env->block_cache) * 1024 * 1024;
+    std::shared_ptr<Cache> cache;
+    if (env->cache_type == 2) {
+      // An estimated entry charge of 0 selects the auto-tuning variant, which
+      // is what db_bench's default --cache_type=hyper_clock_cache builds.
+      HyperClockCacheOptions hcc_opts(BLOCK_CACHE_TIMES_MB,
+                                      /*estimated_entry_charge=*/0,
+                                      env->cache_numshardbits);
+      cache = hcc_opts.MakeSharedCache();
+    } else {
+      cache = NewLRUCache(BLOCK_CACHE_TIMES_MB, env->cache_numshardbits, false,
+                          env->block_cache_high_priority_ratio);
+    }
     table_options->block_cache = cache;
     table_options->cache_index_and_filter_blocks =
         env->cache_index_and_filter_blocks;
@@ -304,7 +324,7 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   options->inplace_update_support = env->inplace_update_support;
   options->inplace_update_num_locks = env->inplace_update_num_locks;
   options->report_bg_io_stats = env->report_bg_io_stats;
-  options->arena_block_size = env->GetBlockSize();
+  options->arena_block_size = env->arena_block_size;
 #pragma endregion // [ColumnFamilyOptions]
 
 #pragma region[FlushOptions]
@@ -312,11 +332,12 @@ void configOptions(std::unique_ptr<DBEnv> &env, Options *options,
   flush_options->allow_write_stall = env->allow_write_stall;
 #pragma endregion // [FlushOptions]
 
-  options->statistics = rocksdb::CreateDBStatistics();
+  // db_bench attaches a Statistics object only when --statistics is on and
+  // leaves options.statistics null otherwise. Creating one unconditionally
+  // shows up in the option dump and is not free even at kDisableAll.
   if (env->IsRocksDBStatEnabled()) {
+    options->statistics = rocksdb::CreateDBStatistics();
     options->statistics->set_stats_level(rocksdb::StatsLevel::kAll);
-  } else {
-    options->statistics->set_stats_level(rocksdb::StatsLevel::kDisableAll);
   }
 
   rocksdb::PerfLevel perf_level = rocksdb::PerfLevel::kDisable;

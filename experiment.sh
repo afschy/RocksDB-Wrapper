@@ -180,13 +180,23 @@ if [[ "${runner}" == "dbbench" ]]; then
         --partition_index_and_filters=$(tf ${partition_filters}) \
         --bloom_bits=${bloom_bits} ${dbb_trace}"
 else
-    # Only the flags below are applied by parse_arguments.h. --file_size is
-    # declared there but never read, and --num_levels / --files_in_l0 do not
-    # exist on this branch at all.
+    # working_version's defaults are db_bench's defaults now, so anything left
+    # off below lands on the same value in both runners. --file_size is still
+    # declared in parse_arguments.h but never read; the SST size comes from the
+    # memtable size, which is what P * B * E works out to.
+    #
+    # --size_ratio no longer moves the three L0 triggers as a side effect, so
+    # they are passed explicitly, exactly as they are to db_bench.
     command="./bin/working_version --destroy=1 --size_ratio=${size_ratio} \
         --buffer_size_in_pages=$((file_size_mb * 256)) --entry_size=${entry_size} \
         --entries_per_page=$((4096 / entry_size)) \
         --file_to_memtable_size_ratio=${file_to_memtable_size_ratio} \
+        --max_bytes_for_level_base=$((file_size_b * files_in_l0)) \
+        --num_levels=${level_count} \
+        --level0_file_num_compaction_trigger=${size_ratio} \
+        --level0_slowdown_writes_trigger=$((size_ratio - 1)) \
+        --level0_stop_writes_trigger=${size_ratio} \
+        --max_background_compactions=1 --max_background_flushes=1 \
         --compaction_pri=${compaction_pri} --cc=${clear_system_cache} \
         --progress=1 --totaltime=1 --peroptime=1 \
         --bb=${cache_size_mb} --cache_index_and_filter=${cache_index_filter} \

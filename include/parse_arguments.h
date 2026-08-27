@@ -16,22 +16,22 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       group1, "d", "Destroy and recreate the database [def: 1]",
       {'d', "destroy"});
   args::ValueFlag<int> clear_system_cache_cmd(
-      group1, "cc", "Clear system cache [def: 1]", {"cc"});
+      group1, "cc", "Clear system cache [def: 0]", {"cc"});
 
   args::ValueFlag<int> size_ratio_cmd(
       group1, "T", "The size ratio of the LSM-tree [def: 10]",
       {'T', "size_ratio"});
   args::ValueFlag<int> buffer_size_in_pages_cmd(
-      group1, "P", "Number of pages in memory buffer [def: 512]",
+      group1, "P", "Number of pages in memory buffer [def: 16384]",
       {'P', "buffer_size_in_pages"});
   args::ValueFlag<int> entries_per_page_cmd(
-      group1, "B", "Number of entries per page [def: 4]",
+      group1, "B", "Number of entries per page [def: 64]",
       {'B', "entries_per_page"});
   args::ValueFlag<int> entry_size_cmd(group1, "E",
-                                      "Size of one entry (bytes) [def: 1024 B]",
+                                      "Size of one entry (bytes) [def: 64 B]",
                                       {'E', "entry_size"});
   args::ValueFlag<long> buffer_size_cmd(
-      group1, "M", " Memory buffer size (bytes) [def: 16 MB]",
+      group1, "M", " Memory buffer size (bytes); 0 derives it from P*B*E [def: 0]",
       {'M', "memory_size"});
   args::ValueFlag<int> file_to_memtable_size_ratio_cmd(
       group1, "file_to_memtable_size_ratio",
@@ -40,6 +40,42 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   args::ValueFlag<long> file_size_cmd(group1, "file_size",
                                       "Size of one SST file [def: 256 KB]",
                                       {'F', "file_size"});
+  args::ValueFlag<int> num_levels_cmd(
+      group1, "num_levels", "Number of levels in the LSM-tree [def: 7]",
+      {'L', "num_levels"});
+  args::ValueFlag<unsigned long long> max_bytes_for_level_base_cmd(
+      group1, "max_bytes_for_level_base",
+      "Maximum total size of level 1 in bytes; 0 derives it from the memtable "
+      "size [def: 256 MB]",
+      {"max_bytes_for_level_base"});
+  args::ValueFlag<int> level0_file_num_compaction_trigger_cmd(
+      group1, "level0_file_num_compaction_trigger",
+      "Number of L0 files that triggers an L0 compaction [def: 4]",
+      {"level0_file_num_compaction_trigger"});
+  args::ValueFlag<int> level0_slowdown_writes_trigger_cmd(
+      group1, "level0_slowdown_writes_trigger",
+      "Number of L0 files at which writes start being throttled [def: 20]",
+      {"level0_slowdown_writes_trigger"});
+  args::ValueFlag<int> level0_stop_writes_trigger_cmd(
+      group1, "level0_stop_writes_trigger",
+      "Number of L0 files at which writes stop entirely [def: 36]",
+      {"level0_stop_writes_trigger"});
+  args::ValueFlag<int> max_background_jobs_cmd(
+      group1, "max_background_jobs",
+      "Concurrent background jobs. RocksDB splits this into "
+      "max(1, jobs / 4) flushes and max(1, jobs - flushes) compactions, so 2 "
+      "is one of each [def: 2]",
+      {"max_background_jobs"});
+  args::ValueFlag<int> max_background_compactions_cmd(
+      group1, "max_background_compactions",
+      "Concurrent background compactions; -1 defers to --max_background_jobs "
+      "[def: -1]",
+      {"max_background_compactions"});
+  args::ValueFlag<int> max_background_flushes_cmd(
+      group1, "max_background_flushes",
+      "Concurrent background flushes; -1 defers to --max_background_jobs "
+      "[def: -1]",
+      {"max_background_flushes"});
   args::ValueFlag<int> compaction_pri_cmd(
       group1, "compaction_pri",
       "[Compaction priority: 0 for kByCompensatedSize, 1 for "
@@ -54,17 +90,22 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       {'C', "compaction_style"});
   args::ValueFlag<int> bits_per_key_cmd(
       group1, "bits_per_key",
-      "The number of bits per key assigned to Bloom filter [def: 10]",
+      "The number of bits per key assigned to Bloom filter, used only with "
+      "--bloom_filter=1 [def: 10]",
       {'b', "bits_per_key"});
   args::ValueFlag<int> block_cache_cmd(
       group1, "bb", "Block cache size in MB; 0 disables the block cache "
-      "entirely [def: 0]",
+      "entirely [def: 32]",
       {"bb"});
+  args::ValueFlag<int> cache_type_cmd(
+      group1, "cache_type",
+      "[Block cache: 1 for LRUCache, 2 for HyperClockCache; def: 2]",
+      {"cache_type"});
   args::ValueFlag<int> cache_index_and_filter_cmd(
       group1, "cache_index_and_filter",
       "Put index and filter blocks in the block cache instead of holding them "
       "outside it for the table reader's lifetime. Ignored when --bb=0 "
-      "[def: 1]",
+      "[def: 0]",
       {"cache_index_and_filter"});
   args::ValueFlag<int> pin_l0_cmd(
       group1, "pin_l0",
@@ -89,17 +130,17 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   args::ValueFlag<int> fill_cache_cmd(
       group1, "fill_cache",
       "Insert blocks read by queries into the block cache. 0 leaves the cache "
-      "contents untouched by reads [def: 0]",
+      "contents untouched by reads [def: 1]",
       {"fill_cache"});
   args::ValueFlag<int> compression_cmd(
       group1, "compression",
       "[Block compression: 1 none, 2 snappy, 3 zlib, 4 bzip2, 5 lz4, 6 lz4hc, "
-      "7 xpress, 8 zstd; def: 1]",
+      "7 xpress, 8 zstd; def: 2 (snappy)]",
       {"compression"});
   args::ValueFlag<int> bloom_filter_cmd(
       group1, "bloom_filter",
       "Build bloom filters. 0 drops the filter policy, so every lookup that "
-      "reaches a file reads its index and data blocks [def: 1]",
+      "reaches a file reads its index and data blocks [def: 0]",
       {"bloom_filter"});
   args::ValueFlag<int> enable_perf_cmd(
       group1, "enable_perf_iostat",
@@ -125,7 +166,7 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   args::ValueFlag<int> low_pri_cmd(
       group1, "low_pri",
       "Set the priority of write requests (0 means compactions aren't "
-      "prioritized) [def: 1]",
+      "prioritized) [def: 0]",
       {"lowpri"});
 
   args::ValueFlag<std::string> trace_file_cmd(
@@ -189,11 +230,37 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
   env->clear_system_cache = clear_system_cache_cmd
                                 ? args::get(clear_system_cache_cmd)
                                 : env->clear_system_cache;
+  // --size_ratio is max_bytes_for_level_multiplier and nothing else. It used
+  // to overwrite the three L0 triggers as well, which made their defaults dead
+  // and had no counterpart in db_bench, where all four are separate flags.
   env->size_ratio =
       size_ratio_cmd ? args::get(size_ratio_cmd) : env->size_ratio;
-  env->level0_slowdown_writes_trigger = env->size_ratio - 1;
-  env->level0_stop_writes_trigger = env->size_ratio;
-  env->level0_file_num_compaction_trigger = env->size_ratio;
+  env->num_levels =
+      num_levels_cmd ? args::get(num_levels_cmd) : env->num_levels;
+  env->max_bytes_for_level_base = max_bytes_for_level_base_cmd
+                                      ? args::get(max_bytes_for_level_base_cmd)
+                                      : env->max_bytes_for_level_base;
+  env->level0_file_num_compaction_trigger =
+      level0_file_num_compaction_trigger_cmd
+          ? args::get(level0_file_num_compaction_trigger_cmd)
+          : env->level0_file_num_compaction_trigger;
+  env->level0_slowdown_writes_trigger =
+      level0_slowdown_writes_trigger_cmd
+          ? args::get(level0_slowdown_writes_trigger_cmd)
+          : env->level0_slowdown_writes_trigger;
+  env->level0_stop_writes_trigger =
+      level0_stop_writes_trigger_cmd
+          ? args::get(level0_stop_writes_trigger_cmd)
+          : env->level0_stop_writes_trigger;
+  env->max_background_jobs = max_background_jobs_cmd
+                                 ? args::get(max_background_jobs_cmd)
+                                 : env->max_background_jobs;
+  env->max_background_compactions =
+      max_background_compactions_cmd ? args::get(max_background_compactions_cmd)
+                                     : env->max_background_compactions;
+  env->max_background_flushes = max_background_flushes_cmd
+                                    ? args::get(max_background_flushes_cmd)
+                                    : env->max_background_flushes;
 
   env->buffer_size_in_pages = buffer_size_in_pages_cmd
                                   ? args::get(buffer_size_in_pages_cmd)
@@ -221,6 +288,8 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
       bits_per_key_cmd ? args::get(bits_per_key_cmd) : env->bits_per_key;
   env->block_cache =
       block_cache_cmd ? args::get(block_cache_cmd) : env->block_cache;
+  env->cache_type =
+      cache_type_cmd ? args::get(cache_type_cmd) : env->cache_type;
   env->cache_index_and_filter_blocks =
       cache_index_and_filter_cmd ? args::get(cache_index_and_filter_cmd)
                                  : env->cache_index_and_filter_blocks;
@@ -290,16 +359,30 @@ int parse_arguments(int argc, char *argv[], std::unique_ptr<DBEnv> &env) {
         rocksdb::GetSupportedCompressions();
     if (std::find(supported.begin(), supported.end(), requested) ==
         supported.end()) {
-      std::cerr << "--compression=" << env->compression
-                << " is not compiled into this build. Available:";
-      for (rocksdb::CompressionType type : supported) {
-        std::cerr << " " << (static_cast<int>(type) + 1);
+      if (!compression_cmd) {
+        // Nobody asked for this codec; it is just the db_bench default (snappy)
+        // on a build that did not link it. db_bench warns and carries on with
+        // no compression, so do the same rather than refuse to start.
+        std::cerr << "WARNING: default compression (" << env->compression
+                  << ") is not compiled into this build; using none"
+                  << std::endl;
+        env->compression = 1;
+      } else {
+        std::cerr << "--compression=" << env->compression
+                  << " is not compiled into this build. Available:";
+        for (rocksdb::CompressionType type : supported) {
+          std::cerr << " " << (static_cast<int>(type) + 1);
+        }
+        std::cerr << std::endl;
+        return 1;
       }
-      std::cerr << std::endl;
-      return 1;
     }
   }
 
+  if (env->cache_type != 1 && env->cache_type != 2) {
+    std::cerr << "--cache_type must be 1 (LRU) or 2 (HyperClock)" << std::endl;
+    return 1;
+  }
   if (env->index_type < 1 || env->index_type > 4) {
     std::cerr << "--index_type must be 1, 2, 3 or 4" << std::endl;
     return 1;
